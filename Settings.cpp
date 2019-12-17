@@ -85,20 +85,18 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
     device = rspDevs[devIdx];
     SoapySDR_logf(SOAPY_SDR_INFO, "hwVer: %d", device.hwVer);
     if (device.hwVer == SDRPLAY_RSPduo_ID) {
-        // if single tuner mode is available, select device as single tuner
-        if ((device.rspDuoMode & sdrplay_api_RspDuoMode_Single_Tuner) || (device.rspDuoMode & sdrplay_api_RspDuoMode_Single_Tuner))
-        {
+        if (args.count("rspduo_mode")) {
+            std::string rspDuoMode = args.at("rspduo_mode");
+            changeRspDuoMode(rspDuoMode, false);
+        } else if (device.rspDuoMode & sdrplay_api_RspDuoMode_Single_Tuner) {
+            // by default set the RSPduo mode to 'Tuner A (Single Tuner)'
             device.rspDuoMode = sdrplay_api_RspDuoMode_Single_Tuner;
-        }
-        else if (device.rspDuoMode & sdrplay_api_RspDuoMode_Slave)
-        {
-            device.rspDuoMode = sdrplay_api_RspDuoMode_Slave;
+            device.tuner = sdrplay_api_Tuner_A;
         }
     } else {
         device.tuner = sdrplay_api_Tuner_A;
         device.rspDuoMode = sdrplay_api_RspDuoMode_Unknown;
     }
-    SoapySDR_logf(SOAPY_SDR_INFO, "mode: %d", device.rspDuoMode);
     err = sdrplay_api_SelectDevice(&device);
     if (err != sdrplay_api_Success)
     {
@@ -120,7 +118,6 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
     {
         SoapySDR_logf(SOAPY_SDR_ERROR, "GetDeviceParams Error: %s", sdrplay_api_GetErrorString(err));
         throw std::runtime_error("GetDeviceParams() failed");
-        return;
     }
     chParams = device.tuner == sdrplay_api_Tuner_B ? deviceParams->rxChannelB : deviceParams->rxChannelA;
 
@@ -262,9 +259,15 @@ std::vector<std::string> SoapySDRPlay::listAntennas(const int direction, const s
         antennas.push_back("Antenna C");
     }
     else if (device.hwVer == SDRPLAY_RSPduo_ID) {
-        antennas.push_back("Tuner 1 50 ohm");
-        antennas.push_back("Tuner 2 50 ohm");
-        antennas.push_back("Tuner 1 Hi-Z");
+        if (device.tuner == sdrplay_api_Tuner_A ||
+                (device.tuner == sdrplay_api_Tuner_Both && channel == 0)) {
+            antennas.push_back("Tuner 1 50 ohm");
+            antennas.push_back("Tuner 1 Hi-Z");
+        }
+        if (device.tuner == sdrplay_api_Tuner_B ||
+                (device.tuner == sdrplay_api_Tuner_Both && channel == 1)) {
+            antennas.push_back("Tuner 2 50 ohm");
+        }
     }
     return antennas;
 }
@@ -350,7 +353,7 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
         if (name == "Tuner 1 50 ohm")
         {
             chParams->rspDuoTunerParams.tuner1AmPortSel = sdrplay_api_RspDuo_AMPORT_2;
-            if (device.tuner != sdrplay_api_Tuner_A)
+            if (!(device.tuner & sdrplay_api_Tuner_A))
             {
                 device.tuner = sdrplay_api_Tuner_A;
                 changeToTuner1_2 = true;
@@ -359,7 +362,7 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
         else if (name == "Tuner 2 50 ohm")
         {
             chParams->rspDuoTunerParams.tuner1AmPortSel = sdrplay_api_RspDuo_AMPORT_2;
-            if (device.tuner != sdrplay_api_Tuner_B)
+            if (!(device.tuner & sdrplay_api_Tuner_B))
             {
                 device.tuner = sdrplay_api_Tuner_B;
                 changeToTuner1_2 = true;
@@ -368,7 +371,7 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
         else if (name == "Tuner 1 HiZ")
         {
             chParams->rspDuoTunerParams.tuner1AmPortSel = sdrplay_api_RspDuo_AMPORT_1;
-            if (device.tuner != sdrplay_api_Tuner_A)
+            if (!(device.tuner & sdrplay_api_Tuner_A))
             {
                 device.tuner = sdrplay_api_Tuner_A;
                 changeToTuner1_2 = true;
@@ -1264,7 +1267,7 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
 
    if (device.hwVer == SDRPLAY_RSPduo_ID && key == "rspduo_mode")
    {
-      changeRspDuoMode(value);
+      changeRspDuoMode(value, true);
    }
 
 #ifdef RF_GAIN_IN_MENU
@@ -1465,46 +1468,57 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
    }
 }
 
-void SoapySDRPlay::changeRspDuoMode(const std::string &rspDuoModeString)
+void SoapySDRPlay::changeRspDuoMode(const std::string &rspDuoModeString,
+                                    bool resetDevice)
 {
     sdrplay_api_TunerSelectT tuner = rspDuoModeStringToTuner(rspDuoModeString);
     sdrplay_api_RspDuoModeT rspDuoMode = rspDuoModeStringToRspDuoMode(rspDuoModeString);
-    if ((rspDuoMode & sdrplay_api_RspDuoMode_Master) && (device.rspDuoMode & sdrplay_api_RspDuoMode_Master))
-    {
-        rspDuoMode = sdrplay_api_RspDuoMode_Master;
-    }
-    else if ((rspDuoMode & sdrplay_api_RspDuoMode_Slave) && (device.rspDuoMode & sdrplay_api_RspDuoMode_Slave))
-    {
-        rspDuoMode = sdrplay_api_RspDuoMode_Slave;
-    }
-    // if master device is available, select device as master
-    else if (rspDuoMode & sdrplay_api_RspDuoMode_Master)
-    {
-        rspDuoMode = sdrplay_api_RspDuoMode_Master;
+    // slave mode can't be changed - all the other ones can be changed to
+    // anything but slave
+    sdrplay_api_RspDuoModeT rspDuoNonSlaveModes = (sdrplay_api_RspDuoModeT) (sdrplay_api_RspDuoMode_Single_Tuner | sdrplay_api_RspDuoMode_Dual_Tuner | sdrplay_api_RspDuoMode_Master);
+    bool deviceNonSlave = device.rspDuoMode & rspDuoNonSlaveModes;
+    bool setToNonSlave = rspDuoMode & rspDuoNonSlaveModes;
+    bool deviceSlave = device.rspDuoMode & sdrplay_api_RspDuoMode_Slave;
+    bool setToSlave = rspDuoMode & sdrplay_api_RspDuoMode_Slave;
+    bool setIsOK = (deviceNonSlave && setToNonSlave) || (deviceSlave && setToSlave);
+    if (!setIsOK) {
+        SoapySDR_logf(SOAPY_SDR_ERROR, "Invalid RSPduo mode change: %d -> %d", device.rspDuoMode, rspDuoMode);
+        throw std::runtime_error("Invalid RSPduo mode change");
     }
     if (rspDuoMode == device.rspDuoMode && tuner != device.tuner)
     {
         device.tuner = tuner;
-        sdrplay_api_SwapRspDuoActiveTuner(device.dev, &device.tuner, chParams->rspDuoTunerParams.tuner1AmPortSel);
+        if (resetDevice)
+        {
+            sdrplay_api_SwapRspDuoActiveTuner(device.dev, &device.tuner, chParams->rspDuoTunerParams.tuner1AmPortSel);
+         }
     }
     else if (rspDuoMode != device.rspDuoMode)
     {
         sdrplay_api_ErrT err;
 
-        SoapySDR_logf(SOAPY_SDR_INFO, "Changed RSPduo mode - going to run ReleaseDevice+SelectDevice");
-        if (streamActive)
+        if (resetDevice)
         {
-            sdrplay_api_Uninit(device.dev);
+            SoapySDR_logf(SOAPY_SDR_INFO, "Changing RSPduo mode - going to run ReleaseDevice+SelectDevice");
+            if (streamActive)
+            {
+                sdrplay_api_Uninit(device.dev);
+            }
+            streamActive = false;
+            sdrplay_api_ReleaseDevice(&device);
+            _bufA = 0;
+            _bufB = 0;
         }
-        streamActive = false;
-        sdrplay_api_ReleaseDevice(&device);
-        _bufA = 0;
-        _bufB = 0;
-        err = sdrplay_api_SelectDevice(&device);
-        if (err != sdrplay_api_Success)
+        device.rspDuoMode = rspDuoMode;
+        device.tuner = tuner;
+        if (resetDevice)
         {
-            SoapySDR_logf(SOAPY_SDR_ERROR, "SelectDevice Error: %s", sdrplay_api_GetErrorString(err));
-            throw std::runtime_error("SelectDevice() failed");
+            err = sdrplay_api_SelectDevice(&device);
+            if (err != sdrplay_api_Success)
+            {
+                SoapySDR_logf(SOAPY_SDR_ERROR, "SelectDevice Error: %s", sdrplay_api_GetErrorString(err));
+                throw std::runtime_error("SelectDevice() failed");
+            }
         }
     }
 }

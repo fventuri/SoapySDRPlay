@@ -214,7 +214,8 @@ public:
 
     void writeSetting(const std::string &key, const std::string &value);
 
-    void changeRspDuoMode(const std::string &rspDuoModeString);
+    void changeRspDuoMode(const std::string &rspDuoModeString,
+                          bool resetDevice);
 
     std::string readSetting(const std::string &key) const;
 

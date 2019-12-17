@@ -124,19 +124,19 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
          dev["driver"] = "sdrplay";
          if (rspDevs[i].hwVer == SDRPLAY_RSP1A_ID)
          {
-            sprintf_s(lblstr, 128, "SDRplay Dev%d RSP1A %s", i, rspDevs[i].SerNo);
+            sprintf_s(lblstr, 128, "SDRplay Dev%d RSP1A %.*s", i, SDRPLAY_MAX_SER_NO_LEN, rspDevs[i].SerNo);
          }
          else if (rspDevs[i].hwVer == SDRPLAY_RSPduo_ID)
          {
-            sprintf_s(lblstr, 128, "SDRplay Dev%d RSPduo %s", i, rspDevs[i].SerNo);
+            sprintf_s(lblstr, 128, "SDRplay Dev%d RSPduo %.*s", i, SDRPLAY_MAX_SER_NO_LEN, rspDevs[i].SerNo);
          }
          else if (rspDevs[i].hwVer == SDRPLAY_RSPdx_ID)
          {
-            sprintf_s(lblstr, 128, "SDRplay Dev%d RSPdx %s", i, rspDevs[i].SerNo);
+            sprintf_s(lblstr, 128, "SDRplay Dev%d RSPdx %.*s", i, SDRPLAY_MAX_SER_NO_LEN, rspDevs[i].SerNo);
          }
          else
          {
-            sprintf_s(lblstr, 128, "SDRplay Dev%d RSP%d %s", i, rspDevs[i].hwVer, rspDevs[i].SerNo);
+            sprintf_s(lblstr, 128, "SDRplay Dev%d RSP%d %.*s", i, rspDevs[i].hwVer, SDRPLAY_MAX_SER_NO_LEN, rspDevs[i].SerNo);
          }
          dev["label"] = lblstr;
          results.push_back(dev);
