@@ -173,7 +173,7 @@ public:
     double getFrequency(const int direction, const size_t channel, const std::string &name) const;
 
     SoapySDR::RangeList getBandwidthRange(const int direction, const size_t channel) const;
-    
+
     std::vector<std::string> listFrequencies(const int direction, const size_t channel) const;
 
     SoapySDR::RangeList getFrequencyRange(const int direction, const size_t channel, const std::string &name) const;
@@ -263,7 +263,7 @@ private:
     float ver;
 
     //cached settings
-    uint32_t reqSampleRate;
+    uint32_t sampleRate;
     std::atomic_ulong bufferLength;
 
     //numBuffers, bufferElems, elementsPerSample
@@ -277,8 +277,6 @@ private:
     std::atomic_bool streamActive;
 
     std::atomic_bool useShort;
-
-    int nchannels;
 
 public:
 
@@ -323,5 +321,6 @@ public:
         std::atomic_bool reset;
     };
 
-    Buffer *_bufA, *_bufB;
+    Buffer *_buffersByTuner[2];
+    Buffer *_buffersByChannel[2];
 };

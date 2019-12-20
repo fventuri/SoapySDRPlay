@@ -34,6 +34,12 @@ static sdrplay_api_DeviceT rspDevs[SDRPLAY_MAX_DEVICES];
 
 SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
 {
+    if (args.count("label") == 0)
+    {
+        SoapySDR_log(SOAPY_SDR_WARNING, "Can't find label in args");
+        throw std::runtime_error("Can't find label in args");
+    }
+
     std::string label = args.at("label");
 
     std::string baseLabel = "SDRplay Dev";
@@ -42,7 +48,7 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
 
     if (posidx == std::string::npos)
     {
-        SoapySDR_logf(SOAPY_SDR_WARNING, "Can't find Dev string in args");
+        SoapySDR_log(SOAPY_SDR_WARNING, "Can't find Dev string in args");
         throw std::runtime_error("Can't find Dev string in args");
     }
     // retrieve device index
@@ -84,6 +90,10 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
 
     device = rspDevs[devIdx];
     SoapySDR_logf(SOAPY_SDR_INFO, "hwVer: %d", device.hwVer);
+
+    // set sample rate
+    sampleRate = 6000000;
+
     if (device.hwVer == SDRPLAY_RSPduo_ID) {
         if (args.count("rspduo_mode")) {
             std::string rspDuoMode = args.at("rspduo_mode");
@@ -121,14 +131,17 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
     }
     chParams = device.tuner == sdrplay_api_Tuner_B ? deviceParams->rxChannelB : deviceParams->rxChannelA;
 
-    // set sample rate
-    uint32_t sampleRate = 6000000;
-    deviceParams->devParams->fsFreq.fsHz = sampleRate;
-    reqSampleRate = sampleRate;
+    // can't set sample rate for RSPduo slaves
+    if (!(device.hwVer == SDRPLAY_RSPduo_ID && device.rspDuoMode == sdrplay_api_RspDuoMode_Slave)) {
+        deviceParams->devParams->fsFreq.fsHz = sampleRate;
+    }
     chParams->ctrlParams.decimation.decimationFactor = 1;
     chParams->ctrlParams.decimation.enable = 0;
     chParams->tunerParams.rfFreq.rfHz = 100000000;
-    deviceParams->devParams->ppm = 0.0;
+    // can't set ppm for RSPduo slaves
+    if (!(device.hwVer == SDRPLAY_RSPduo_ID && device.rspDuoMode == sdrplay_api_RspDuoMode_Slave)) {
+        deviceParams->devParams->ppm = 0.0;
+    }
     chParams->tunerParams.ifType = sdrplay_api_IF_1_620;
     chParams->tunerParams.bwType = sdrplay_api_BW_1_536;
     chParams->tunerParams.gain.gRdB = 40;
@@ -161,14 +174,19 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
     }
     else if (device.hwVer == SDRPLAY_RSPduo_ID) {
         chParams->rspDuoTunerParams.tuner1AmPortSel = sdrplay_api_RspDuo_AMPORT_2;
-        deviceParams->devParams->rspDuoParams.extRefOutputEn = 0;
+        // can't set extRefOutputEn for RSPduo slaves
+        if (!(device.rspDuoMode == sdrplay_api_RspDuoMode_Slave)) {
+            deviceParams->devParams->rspDuoParams.extRefOutputEn = 0;
+        }
         chParams->rspDuoTunerParams.biasTEnable = 0;
         chParams->rspDuoTunerParams.rfNotchEnable = 0;
         chParams->rspDuoTunerParams.rfDabNotchEnable = 0;
     }
 
-    _bufA = 0;
-    _bufB = 0;
+    _buffersByTuner[0] = 0;
+    _buffersByTuner[1] = 0;
+    _buffersByChannel[0] = 0;
+    _buffersByChannel[1] = 0;
     useShort = true;
 
     streamActive = false;
@@ -191,8 +209,10 @@ SoapySDRPlay::~SoapySDRPlay(void)
         isSdrplayApiOpen = false;
     }
 
-    _bufA = 0;
-    _bufB = 0;
+    _buffersByTuner[0] = 0;
+    _buffersByTuner[1] = 0;
+    _buffersByChannel[0] = 0;
+    _buffersByChannel[1] = 0;
 }
 
 /*******************************************************************
@@ -259,13 +279,17 @@ std::vector<std::string> SoapySDRPlay::listAntennas(const int direction, const s
         antennas.push_back("Antenna C");
     }
     else if (device.hwVer == SDRPLAY_RSPduo_ID) {
+        // CubicSDR wants to see all the antennas here
+        bool CubicSDR = true;
         if (device.tuner == sdrplay_api_Tuner_A ||
-                (device.tuner == sdrplay_api_Tuner_Both && channel == 0)) {
+                (device.tuner == sdrplay_api_Tuner_Both && channel == 0) ||
+                 CubicSDR) {
             antennas.push_back("Tuner 1 50 ohm");
             antennas.push_back("Tuner 1 Hi-Z");
         }
         if (device.tuner == sdrplay_api_Tuner_B ||
-                (device.tuner == sdrplay_api_Tuner_Both && channel == 1)) {
+                (device.tuner == sdrplay_api_Tuner_Both && channel == 1) ||
+                 CubicSDR) {
             antennas.push_back("Tuner 2 50 ohm");
         }
     }
@@ -349,6 +373,23 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
     }
     else if (device.hwVer == SDRPLAY_RSPduo_ID)
     {
+        if (device.rspDuoMode == sdrplay_api_RspDuoMode_Slave)
+        {
+            bool isValidAntenna = false;
+            if (name.rfind("Tuner 1 ", 0) == 0)
+            {
+                isValidAntenna = device.tuner & sdrplay_api_Tuner_A;
+            }
+            else if (name.rfind("Tuner 2 ", 0) == 0)
+            {
+                isValidAntenna = device.tuner & sdrplay_api_Tuner_B;
+            }
+            if (!isValidAntenna)
+            {
+                SoapySDR_logf(SOAPY_SDR_WARNING, "Invalid antenna choice in slave mode: %s - it will be ignored", name.c_str());
+                return;
+            }
+        }
         bool changeToTuner1_2 = false;
         if (name == "Tuner 1 50 ohm")
         {
@@ -598,7 +639,10 @@ void SoapySDRPlay::setFrequency(const int direction,
             sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Tuner_Frf, sdrplay_api_Update_Ext1_None);
          }
       }
-      else if ((name == "CORR") && (deviceParams->devParams->ppm != frequency))
+      // can't set ppm for RSPduo slaves
+      else if ((name == "CORR") &&
+              !(device.hwVer == SDRPLAY_RSPduo_ID && device.rspDuoMode == sdrplay_api_RspDuoMode_Slave) &&
+              (deviceParams->devParams->ppm != frequency))
       {
          deviceParams->devParams->ppm = frequency;
          if (streamActive)
@@ -665,20 +709,39 @@ void SoapySDRPlay::setSampleRate(const int direction, const size_t channel, cons
 {
     std::lock_guard <std::mutex> lock(_general_state_mutex);
 
-    SoapySDR_logf(SOAPY_SDR_DEBUG, "Setting sample rate: %d", deviceParams->devParams->fsFreq.fsHz);
+    SoapySDR_logf(SOAPY_SDR_DEBUG, "Setting sample rate: %lf", rate);
 
     if (direction == SOAPY_SDR_RX)
     {
-       reqSampleRate = (uint32_t)rate;
+       if (device.hwVer == SDRPLAY_RSPduo_ID) {
+          if (device.rspDuoMode == sdrplay_api_RspDuoMode_Slave) {
+             // can't set sample rate for RSPduo slaves
+             return;
+          } else if (device.rspDuoMode == sdrplay_api_RspDuoMode_Dual_Tuner || device.rspDuoMode == sdrplay_api_RspDuoMode_Master) {
+             // for Dual Tuner and Master mode we have to use 'SwapRspDuoDualTunerModeSampleRate'
+             if ((uint32_t)rate != sampleRate) {
+                sampleRate = (uint32_t)rate;
+                deviceParams->devParams->fsFreq.fsHz = rate;
+                sdrplay_api_ErrT err;
+                err = sdrplay_api_SwapRspDuoDualTunerModeSampleRate(device.dev, &deviceParams->devParams->fsFreq.fsHz);
+                if (err != sdrplay_api_Success) {
+                    SoapySDR_logf(SOAPY_SDR_ERROR, "SwapRspDuoDualTunerModeSampleRate Error: %s", sdrplay_api_GetErrorString(err));
+                    throw std::runtime_error("SwapRspDuoDualTunerModeSampleRate() failed");
+                }
+                return;
+             }
+         }
+       }
+       sampleRate = (uint32_t)rate;
 
        unsigned int decM;
        unsigned int decEnable;
-       uint32_t sampleRate = getInputSampleRateAndDecimation(reqSampleRate, &decM, &decEnable, chParams->tunerParams.ifType);
+       uint32_t actualSampleRate = getInputSampleRateAndDecimation(sampleRate, &decM, &decEnable, chParams->tunerParams.ifType);
        chParams->tunerParams.bwType = getBwEnumForRate(rate, chParams->tunerParams.ifType);
 
-       if ((sampleRate != deviceParams->devParams->fsFreq.fsHz) || (decM != chParams->ctrlParams.decimation.decimationFactor) || (reqSampleRate != sampleRate))
+       if ((actualSampleRate != deviceParams->devParams->fsFreq.fsHz) || (decM != chParams->ctrlParams.decimation.decimationFactor) || (sampleRate != actualSampleRate))
        {
-          deviceParams->devParams->fsFreq.fsHz = sampleRate;
+          deviceParams->devParams->fsFreq.fsHz = actualSampleRate;
           chParams->ctrlParams.decimation.enable = decEnable;
           chParams->ctrlParams.decimation.decimationFactor = decM;
           if (chParams->tunerParams.ifType == sdrplay_api_IF_Zero) {
@@ -687,8 +750,8 @@ void SoapySDRPlay::setSampleRate(const int direction, const size_t channel, cons
           else {
               chParams->ctrlParams.decimation.wideBandSignal = 0;
           }
-          if (_bufA) { _bufA->reset = true; }
-          if (_bufB) { _bufB->reset = true; }
+          if (_buffersByTuner[0]) { _buffersByTuner[0]->reset = true; }
+          if (_buffersByTuner[1]) { _buffersByTuner[1]->reset = true; }
           if (streamActive)
           {
              // beware that when the fs change crosses the boundary between
@@ -702,27 +765,35 @@ void SoapySDRPlay::setSampleRate(const int direction, const size_t channel, cons
 
 double SoapySDRPlay::getSampleRate(const int direction, const size_t channel) const
 {
-   return reqSampleRate;
+   return (double)sampleRate;
 }
 
 std::vector<double> SoapySDRPlay::listSampleRates(const int direction, const size_t channel) const
 {
     std::vector<double> rates;
 
-    rates.push_back(250000);
-    rates.push_back(500000);
-    rates.push_back(1000000);
-    rates.push_back(2000000);
-    rates.push_back(2048000);
-    rates.push_back(3000000);
-    rates.push_back(4000000);
-    rates.push_back(5000000);
-    rates.push_back(6000000);
-    rates.push_back(7000000);
-    rates.push_back(8000000);
-    rates.push_back(9000000);
-    rates.push_back(10000000);
-    
+    if (device.hwVer == SDRPLAY_RSPduo_ID && (device.rspDuoMode == sdrplay_api_RspDuoMode_Dual_Tuner || device.rspDuoMode == sdrplay_api_RspDuoMode_Master)) {
+        rates.push_back(6000000);
+        rates.push_back(8000000);
+    }
+    else if (device.hwVer == SDRPLAY_RSPduo_ID && device.rspDuoMode == sdrplay_api_RspDuoMode_Slave) {
+        rates.push_back(device.rspDuoSampleFreq);
+    } else {
+        rates.push_back(250000);
+        rates.push_back(500000);
+        rates.push_back(1000000);
+        rates.push_back(2000000);
+        rates.push_back(2048000);
+        rates.push_back(3000000);
+        rates.push_back(4000000);
+        rates.push_back(5000000);
+        rates.push_back(6000000);
+        rates.push_back(7000000);
+        rates.push_back(8000000);
+        rates.push_back(9000000);
+        rates.push_back(10000000);
+    }
+
     return rates;
 }
 
@@ -789,10 +860,15 @@ std::vector<double> SoapySDRPlay::listBandwidths(const int direction, const size
    bandwidths.push_back(300000);
    bandwidths.push_back(600000);
    bandwidths.push_back(1536000);
-   bandwidths.push_back(5000000);
-   bandwidths.push_back(6000000);
-   bandwidths.push_back(7000000);
-   bandwidths.push_back(8000000);
+   if (!(device.hwVer == SDRPLAY_RSPduo_ID &&
+        (device.rspDuoMode == sdrplay_api_RspDuoMode_Dual_Tuner ||
+         device.rspDuoMode == sdrplay_api_RspDuoMode_Master ||
+         device.rspDuoMode == sdrplay_api_RspDuoMode_Slave))) {
+       bandwidths.push_back(5000000);
+       bandwidths.push_back(6000000);
+       bandwidths.push_back(7000000);
+       bandwidths.push_back(8000000);
+   }
    return bandwidths;
 }
 
@@ -883,11 +959,11 @@ sdrplay_api_Bw_MHzT SoapySDRPlay::sdrPlayGetBwMhzEnum(double bw)
 
 sdrplay_api_TunerSelectT SoapySDRPlay::rspDuoModeStringToTuner(std::string rspDuoMode)
 {
-   if (rspDuoMode == "Tuner A (Single Tuner)" || rspDuoMode == "Tuner A (Master/Slave)")
+   if (rspDuoMode.rfind("Tuner A ", 0) == 0)
    {
       return sdrplay_api_Tuner_A;
    }
-   else if (rspDuoMode == "Tuner B (Single Tuner)" || rspDuoMode == "Tuner B (Master/Slave)")
+   else if (rspDuoMode.rfind("Tuner B ", 0) == 0)
    {
       return sdrplay_api_Tuner_B;
    }
@@ -898,38 +974,56 @@ sdrplay_api_TunerSelectT SoapySDRPlay::rspDuoModeStringToTuner(std::string rspDu
    return sdrplay_api_Tuner_Neither;
 }
 
+static bool endsWith(std::string const &fullString, std::string const &match) {
+    return fullString.length() >= match.length() &&
+           fullString.compare(fullString.length() - match.length(), match.length(), match) == 0;
+}
+
 sdrplay_api_RspDuoModeT SoapySDRPlay::rspDuoModeStringToRspDuoMode(std::string rspDuoMode)
 {
-   if (rspDuoMode == "Tuner A (Single Tuner)" || rspDuoMode == "Tuner B (Single Tuner)")
+   if (endsWith(rspDuoMode, " (Single Tuner)"))
    {
       return sdrplay_api_RspDuoMode_Single_Tuner;
-   }
-   else if (rspDuoMode == "Tuner A (Master/Slave)" || rspDuoMode == "Tuner B (Master/Slave)")
-   {
-      return (sdrplay_api_RspDuoModeT) (sdrplay_api_RspDuoMode_Master | sdrplay_api_RspDuoMode_Slave);
    }
    else if (rspDuoMode == "Dual Tuner")
    {
       return sdrplay_api_RspDuoMode_Dual_Tuner;
+   }
+   else if (endsWith(rspDuoMode, " (Master)"))
+   {
+      return sdrplay_api_RspDuoMode_Master;
+   }
+   else if (endsWith(rspDuoMode, " (Slave)"))
+   {
+      return sdrplay_api_RspDuoMode_Slave;
    }
    return sdrplay_api_RspDuoMode_Unknown;
 }
 
 std::string SoapySDRPlay::rspDuoModetoString(sdrplay_api_TunerSelectT tuner, sdrplay_api_RspDuoModeT rspDuoMode)
 {
+   std::string tunerPrefix = "";
+   if (tuner == sdrplay_api_Tuner_A)
+   {
+      tunerPrefix = "Tuner A";
+   }
+   else if (tuner == sdrplay_api_Tuner_B)
+   {
+      tunerPrefix = "Tuner B";
+   }
    switch (rspDuoMode)
    {
    case sdrplay_api_RspDuoMode_Single_Tuner:
-      if (tuner == sdrplay_api_Tuner_A) return "Tuner A (Single Tuner)";
-      if (tuner == sdrplay_api_Tuner_B) return "Tuner B (Single Tuner)";
+      return tunerPrefix + " (Single Tuner)";
       break;
    case sdrplay_api_RspDuoMode_Dual_Tuner:
       return "Dual Tuner";
       break;
    case sdrplay_api_RspDuoMode_Master:
+      return tunerPrefix + " (Master)";
+      break;
    case sdrplay_api_RspDuoMode_Slave:
-      if (tuner == sdrplay_api_Tuner_A) return "Tuner A (Master/Slave)";
-      if (tuner == sdrplay_api_Tuner_B) return "Tuner B (Master/Slave)";
+      return tunerPrefix + " (Slave)";
       break;
    case sdrplay_api_RspDuoMode_Unknown:
       return "";
@@ -988,18 +1082,32 @@ SoapySDR::ArgInfoList SoapySDRPlay::getSettingInfo(void) const
  
     if (device.hwVer == SDRPLAY_RSPduo_ID)
     {
-       SoapySDR::ArgInfo RspDuoMode;
-       RspDuoMode.key = "rspduo_mode";
-       RspDuoMode.value = "Tuner A (Single Tuner)";
-       RspDuoMode.name = "RSP Duo Mode";
-       RspDuoMode.description = "RSP Duo Mode";
-       RspDuoMode.type = SoapySDR::ArgInfo::STRING;
-       RspDuoMode.options.push_back("Tuner A (Single Tuner)");
-       RspDuoMode.options.push_back("Tuner A (Master/Slave)");
-       RspDuoMode.options.push_back("Tuner B (Single Tuner)");
-       RspDuoMode.options.push_back("Tuner B (Master/Slave)");
-       RspDuoMode.options.push_back("Dual Tuner");
-       setArgs.push_back(RspDuoMode);
+       std::string slaveMode = "";
+       if (device.rspDuoMode == sdrplay_api_RspDuoMode_Slave)
+       {
+          slaveMode = rspDuoModetoString(device.tuner, device.rspDuoMode);
+       }
+       SoapySDR::ArgInfo RspDuoModeArg;
+       RspDuoModeArg.key = "rspduo_mode";
+       RspDuoModeArg.value = !slaveMode.empty() ? slaveMode : "Tuner A (Single Tuner)";
+       RspDuoModeArg.name = "RSP Duo Mode";
+       RspDuoModeArg.description = "RSP Duo Mode";
+       RspDuoModeArg.type = SoapySDR::ArgInfo::STRING;
+       if (!slaveMode.empty())
+       {
+          RspDuoModeArg.options.push_back(slaveMode);
+       }
+       else if (device.rspDuoMode & sdrplay_api_RspDuoMode_Single_Tuner ||
+              device.rspDuoMode & sdrplay_api_RspDuoMode_Dual_Tuner ||
+              device.rspDuoMode & sdrplay_api_RspDuoMode_Master)
+       {
+          RspDuoModeArg.options.push_back("Tuner A (Single Tuner)");
+          RspDuoModeArg.options.push_back("Tuner B (Single Tuner)");
+          RspDuoModeArg.options.push_back("Dual Tuner");
+          RspDuoModeArg.options.push_back("Tuner A (Master)");
+          RspDuoModeArg.options.push_back("Tuner B (Master)");
+       }
+       setArgs.push_back(RspDuoModeArg);
     }
 
 #ifdef RF_GAIN_IN_MENU
@@ -1115,17 +1223,23 @@ SoapySDR::ArgInfoList SoapySDRPlay::getSettingInfo(void) const
        setArgs.push_back(RfGainArg);
     }
 #endif
-    
+
     SoapySDR::ArgInfo AIFArg;
     AIFArg.key = "if_mode";
     AIFArg.value = IFtoString(chParams->tunerParams.ifType);
     AIFArg.name = "IF Mode";
     AIFArg.description = "IF frequency in kHz";
     AIFArg.type = SoapySDR::ArgInfo::STRING;
-    AIFArg.options.push_back(IFtoString(sdrplay_api_IF_Zero));
-    AIFArg.options.push_back(IFtoString(sdrplay_api_IF_0_450));
-    AIFArg.options.push_back(IFtoString(sdrplay_api_IF_1_620));
-    AIFArg.options.push_back(IFtoString(sdrplay_api_IF_2_048));
+    if (device.hwVer == SDRPLAY_RSPduo_ID && (device.rspDuoMode == sdrplay_api_RspDuoMode_Master || device.rspDuoMode == sdrplay_api_RspDuoMode_Slave))
+    {
+        AIFArg.options.push_back(IFtoString(sdrplay_api_IF_1_620));
+        AIFArg.options.push_back(IFtoString(sdrplay_api_IF_2_048));
+    } else {
+        AIFArg.options.push_back(IFtoString(sdrplay_api_IF_Zero));
+        AIFArg.options.push_back(IFtoString(sdrplay_api_IF_0_450));
+        AIFArg.options.push_back(IFtoString(sdrplay_api_IF_1_620));
+        AIFArg.options.push_back(IFtoString(sdrplay_api_IF_2_048));
+    }
     setArgs.push_back(AIFArg);
 
     SoapySDR::ArgInfo IQcorrArg;
@@ -1263,7 +1377,7 @@ SoapySDR::ArgInfoList SoapySDRPlay::getSettingInfo(void) const
 
 void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value)
 {
-    std::lock_guard <std::mutex> lock(_general_state_mutex);
+   std::lock_guard <std::mutex> lock(_general_state_mutex);
 
    if (device.hwVer == SDRPLAY_RSPduo_ID && key == "rspduo_mode")
    {
@@ -1297,9 +1411,9 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
          chParams->tunerParams.ifType = stringToIF(value);
          unsigned int decM;
          unsigned int decEnable;
-         uint32_t sampleRate = getInputSampleRateAndDecimation(reqSampleRate, &decM, &decEnable, chParams->tunerParams.ifType);
-         deviceParams->devParams->fsFreq.fsHz = sampleRate;
-         chParams->tunerParams.bwType = getBwEnumForRate(reqSampleRate, chParams->tunerParams.ifType);
+         uint32_t actualSampleRate = getInputSampleRateAndDecimation(sampleRate, &decM, &decEnable, chParams->tunerParams.ifType);
+         deviceParams->devParams->fsFreq.fsHz = actualSampleRate;
+         chParams->tunerParams.bwType = getBwEnumForRate((double)sampleRate, chParams->tunerParams.ifType);
          if (streamActive)
          {
             chParams->ctrlParams.decimation.enable = 0;
@@ -1342,10 +1456,14 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
       }
       if (device.hwVer == SDRPLAY_RSPduo_ID)
       {
-         deviceParams->devParams->rspDuoParams.extRefOutputEn = extRef;
-         if (streamActive)
+         // can't get extRefOutputEn for RSPduo slaves
+         if (!(device.rspDuoMode == sdrplay_api_RspDuoMode_Slave))
          {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_RspDuo_ExtRefControl, sdrplay_api_Update_Ext1_None);
+           deviceParams->devParams->rspDuoParams.extRefOutputEn = extRef;
+           if (streamActive)
+           {
+             sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_RspDuo_ExtRefControl, sdrplay_api_Update_Ext1_None);
+           }
          }
       }
    }
@@ -1475,13 +1593,31 @@ void SoapySDRPlay::changeRspDuoMode(const std::string &rspDuoModeString,
     sdrplay_api_RspDuoModeT rspDuoMode = rspDuoModeStringToRspDuoMode(rspDuoModeString);
     // slave mode can't be changed - all the other ones can be changed to
     // anything but slave
-    sdrplay_api_RspDuoModeT rspDuoNonSlaveModes = (sdrplay_api_RspDuoModeT) (sdrplay_api_RspDuoMode_Single_Tuner | sdrplay_api_RspDuoMode_Dual_Tuner | sdrplay_api_RspDuoMode_Master);
-    bool deviceNonSlave = device.rspDuoMode & rspDuoNonSlaveModes;
-    bool setToNonSlave = rspDuoMode & rspDuoNonSlaveModes;
-    bool deviceSlave = device.rspDuoMode & sdrplay_api_RspDuoMode_Slave;
-    bool setToSlave = rspDuoMode & sdrplay_api_RspDuoMode_Slave;
-    bool setIsOK = (deviceNonSlave && setToNonSlave) || (deviceSlave && setToSlave);
-    if (!setIsOK) {
+    bool isValidMode = false;
+    if (device.rspDuoMode & sdrplay_api_RspDuoMode_Single_Tuner ||
+        device.rspDuoMode & sdrplay_api_RspDuoMode_Dual_Tuner ||
+        device.rspDuoMode & sdrplay_api_RspDuoMode_Master)
+    {
+        switch (rspDuoMode)
+        {
+        case sdrplay_api_RspDuoMode_Single_Tuner:
+        case sdrplay_api_RspDuoMode_Dual_Tuner:
+        case sdrplay_api_RspDuoMode_Master:
+            isValidMode = true;
+            break;
+        default:
+            break;
+        }
+    }
+    else if (device.rspDuoMode == sdrplay_api_RspDuoMode_Slave)
+    {
+        // force the mode to be slave and the tuner to be the one available
+        rspDuoMode = device.rspDuoMode;
+        tuner = device.tuner;
+        isValidMode = true;
+    }
+    if (!isValidMode)
+    {
         SoapySDR_logf(SOAPY_SDR_ERROR, "Invalid RSPduo mode change: %d -> %d", device.rspDuoMode, rspDuoMode);
         throw std::runtime_error("Invalid RSPduo mode change");
     }
@@ -1506,11 +1642,17 @@ void SoapySDRPlay::changeRspDuoMode(const std::string &rspDuoModeString,
             }
             streamActive = false;
             sdrplay_api_ReleaseDevice(&device);
-            _bufA = 0;
-            _bufB = 0;
+            _buffersByTuner[0] = 0;
+            _buffersByTuner[1] = 0;
+            _buffersByChannel[0] = 0;
+            _buffersByChannel[1] = 0;
         }
         device.rspDuoMode = rspDuoMode;
         device.tuner = tuner;
+        if (device.rspDuoMode == sdrplay_api_RspDuoMode_Master)
+        {
+            device.rspDuoSampleFreq = (double)sampleRate;
+        }
         if (resetDevice)
         {
             err = sdrplay_api_SelectDevice(&device);
@@ -1519,6 +1661,13 @@ void SoapySDRPlay::changeRspDuoMode(const std::string &rspDuoModeString,
                 SoapySDR_logf(SOAPY_SDR_ERROR, "SelectDevice Error: %s", sdrplay_api_GetErrorString(err));
                 throw std::runtime_error("SelectDevice() failed");
             }
+            err = sdrplay_api_GetDeviceParams(device.dev, &deviceParams);
+            if (err != sdrplay_api_Success)
+            {
+                SoapySDR_logf(SOAPY_SDR_ERROR, "GetDeviceParams Error: %s", sdrplay_api_GetErrorString(err));
+                throw std::runtime_error("GetDeviceParams() failed");
+            }
+            chParams = device.tuner == sdrplay_api_Tuner_B ? deviceParams->rxChannelB : deviceParams->rxChannelA;
         }
     }
 }
@@ -1565,7 +1714,13 @@ std::string SoapySDRPlay::readSetting(const std::string &key) const
     {
        unsigned char extRef = 0;
        if (device.hwVer == SDRPLAY_RSP2_ID) extRef = deviceParams->devParams->rsp2Params.extRefOutputEn;
-      if (device.hwVer == SDRPLAY_RSPduo_ID) extRef = deviceParams->devParams->rspDuoParams.extRefOutputEn;
+      if (device.hwVer == SDRPLAY_RSPduo_ID) {
+         // can't get extRefOutputEn for RSPduo slaves
+         if (device.rspDuoMode == sdrplay_api_RspDuoMode_Slave) {
+            return "unknown";
+         }
+         extRef = deviceParams->devParams->rspDuoParams.extRefOutputEn;
+       }
        if (extRef == 0) return "false";
        else             return "true";
     }

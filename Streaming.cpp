@@ -76,9 +76,10 @@ static void _ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSelectT tu
 
 void SoapySDRPlay::rx_callback(short *xi, short *xq, unsigned int numSamples, sdrplay_api_TunerSelectT tuner)
 {
-    Buffer *buf = 0;
-    if (tuner == sdrplay_api_Tuner_A)      { buf = _bufA; }
-    else if (tuner == sdrplay_api_Tuner_B) { buf = _bufB; }
+    Buffer *buf = _buffersByTuner[tuner-1];
+    if (buf == 0) {
+        return;
+    }
     std::lock_guard<std::mutex> lock(buf->mutex);
 
     if (buf->count == numBuffers)
@@ -187,26 +188,27 @@ SoapySDR::Stream *SoapySDRPlay::setupStream(const int direction,
                                              const std::vector<size_t> &channels,
                                              const SoapySDR::Kwargs &args)
 {
-    if (device.hwVer == SDRPLAY_RSPduo_ID && device.rspDuoMode == sdrplay_api_RspDuoMode_Dual_Tuner)
-    {
-        nchannels = 2;
-    } else {
-        nchannels = 1;
-    }
+    size_t nchannels = device.hwVer == SDRPLAY_RSPduo_ID && device.rspDuoMode == sdrplay_api_RspDuoMode_Dual_Tuner ? 2 : 1;
+
+    // default to channel 0, if none were specified
+    const std::vector<size_t> &channelIDs = channels.empty() ? std::vector<size_t>{0} : channels;
 
     // check the channel configuration
-    int channels_size = (int) channels.size();
-    if (channels_size != 0 and channels_size != nchannels)
+    bool invalidChannelSelection = channelIDs.size() > nchannels;
+    if (!invalidChannelSelection)
+    {
+        for (auto &channelID : channelIDs)
+        {
+            if (channelID >= nchannels)
+            {
+                invalidChannelSelection = true;
+                break;
+            }
+        }
+    }
+    if (invalidChannelSelection)
     {
         throw std::runtime_error("setupStream invalid channel selection");
-    }
-    int i;
-    for (i = 0; i < channels_size; ++i)
-    {
-        if ((int) channels.at(i) != i)
-        {
-            throw std::runtime_error("setupStream invalid channel selection");
-        }
     }
 
     // check the format
@@ -230,8 +232,14 @@ SoapySDR::Stream *SoapySDRPlay::setupStream(const int direction,
                                   "' -- Only CS16 or CF32 are supported by the SoapySDRPlay module.");
     }
 
-    if (nchannels >= 1) _bufA = new Buffer(numBuffers, bufferLength);
-    if (nchannels >= 2) _bufB = new Buffer(numBuffers, bufferLength);
+    for (size_t i = 0; i < channelIDs.size(); ++i)
+    {
+         auto &channelID = channelIDs[i];
+         if (_buffersByTuner[channelID] == 0) {
+             _buffersByTuner[channelID] = new Buffer(numBuffers, bufferLength);
+         }
+         _buffersByChannel[i] = _buffersByTuner[channelID];
+    }
 
     return (SoapySDR::Stream *) this;
 }
@@ -260,20 +268,18 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
 {
     if (flags != 0) 
     {
+        throw std::runtime_error("*** error in activateStream() - flags != 0");
         return SOAPY_SDR_NOT_SUPPORTED;
     }
    
-    if (_bufA)
-    {
-        _bufA->reset = true;
-        _bufA->nElems = 0;
+    for (auto &buf : _buffersByTuner) {
+        if (buf)
+        {
+            buf->reset = true;
+            buf->nElems = 0;
+        }
     }
-    if (_bufB)
-    {
-        _bufB->reset = true;
-        _bufB->nElems = 0;
-    }
-    
+
     sdrplay_api_ErrT err;
     
     std::lock_guard <std::mutex> lock(_general_state_mutex);
@@ -300,8 +306,9 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
     err = sdrplay_api_Init(device.dev, &cbFns, (void *)this);
     if (err != sdrplay_api_Success)
     {
-       //throw std::runtime_error("Init Error: " + std::to_string(err));
-       return SOAPY_SDR_NOT_SUPPORTED;
+        SoapySDR_logf(SOAPY_SDR_ERROR, "*** error in activateStream() - Init() failed: %s", sdrplay_api_GetErrorString(err));
+        throw std::runtime_error("*** error in activateStream() - Init() failed");
+        return SOAPY_SDR_NOT_SUPPORTED;
     }
 
     streamActive = true;
@@ -340,24 +347,25 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
         return 0;
     }
 
-    int retA = readChannel(stream, buffs[0], numElems, flags, timeNs, timeoutUs, _bufA);
-    if (nchannels <= 1) {
-       return retA;
-    }
-    int retB = readChannel(stream, buffs[1], numElems, flags, timeNs, timeoutUs, _bufB);
-    if (retA < 0)
+    bool isRetValUnknown = true;
+    int retVal = 0;
+    for (int i = 0; i < 2; ++i)
     {
-        return retA;
+        if (_buffersByChannel[i])
+        {
+            int ret = readChannel(stream, buffs[i], numElems, flags, timeNs, timeoutUs, _buffersByChannel[i]);
+            if (isRetValUnknown) {
+                retVal = ret;
+                isRetValUnknown = false;
+            } else if (retVal >= 0) {
+                if (ret != retVal) {
+                    SoapySDR_logf(SOAPY_SDR_WARNING, "Channel A returned %d elements; channel B returned %d elements", retVal, ret);
+                    retVal = std::min(retVal, ret);
+                }
+            }
+        }
     }
-    else if (retB < 0)
-    {
-        return retB;
-    }
-    if (retA != retB)
-    {
-        SoapySDR_logf(SOAPY_SDR_WARNING, "Channel A returned %d elements; channel B returned %d elements", retA, retB);
-    }
-    return std::min(retA, retB);
+    return retVal;
 }
 
 int SoapySDRPlay::readChannel(SoapySDR::Stream *stream,
@@ -419,22 +427,34 @@ int SoapySDRPlay::readChannel(SoapySDR::Stream *stream,
 
 size_t SoapySDRPlay::getNumDirectAccessBuffers(SoapySDR::Stream *stream)
 {
-    std::lock_guard <std::mutex> lockA(_bufA->mutex);
-    size_t retA = _bufA->buffs.size();
-    if (!_bufB) { return retA; }
-    std::lock_guard <std::mutex> lockB(_bufB->mutex);
-    size_t retB = _bufB->buffs.size();
-    return std::min(retA, retB);
+    bool isRetValUnknown = true;
+    size_t retVal = 0;
+    for (int i = 0; i < 2; ++i)
+    {
+        if (_buffersByChannel[i])
+        {
+            std::lock_guard <std::mutex> lockA(_buffersByChannel[i]->mutex);
+            size_t ret = _buffersByChannel[i]->buffs.size();
+            if (isRetValUnknown) {
+                retVal = ret;
+                isRetValUnknown = false;
+            } else {
+                retVal = std::min(retVal, ret);
+            }
+        }
+    }
+    return retVal;
 }
 
 int SoapySDRPlay::getDirectAccessBufferAddrs(SoapySDR::Stream *stream, const size_t handle, void **buffs)
 {
-    std::lock_guard <std::mutex> lockA(_bufA->mutex);
-    buffs[0] = (void *)_bufA->buffs[handle].data();
-    if (nchannels > 1)
+    for (int i = 0; i < 2; ++i)
     {
-        std::lock_guard <std::mutex> lockB(_bufB->mutex);
-        buffs[0] = (void *)_bufB->buffs[handle].data();
+        if (_buffersByChannel[i])
+        {
+            std::lock_guard <std::mutex> lockA(_buffersByChannel[i]->mutex);
+            buffs[i] = (void *)_buffersByChannel[i]->buffs[handle].data();
+        }
     }
     return 0;
 }
@@ -493,13 +513,13 @@ int SoapySDRPlay::acquireReadBuffer(SoapySDR::Stream *stream,
 
 void SoapySDRPlay::releaseReadBuffer(SoapySDR::Stream *stream, const size_t handle)
 {
-    std::lock_guard <std::mutex> lockA(_bufA->mutex);
-    _bufA->buffs[handle].clear();
-    _bufA->count--;
-    if (nchannels > 1)
+    for (int i = 0; i < 2; ++i)
     {
-        std::lock_guard <std::mutex> lockA(_bufB->mutex);
-        _bufB->buffs[handle].clear();
-        _bufB->count--;
+        if (_buffersByChannel[i])
+        {
+            std::lock_guard <std::mutex> lockA(_buffersByChannel[i]->mutex);
+            _buffersByChannel[i]->buffs[handle].clear();
+            _buffersByChannel[i]->count--;
+        }
     }
 }
