@@ -36,6 +36,7 @@
 #include <string>
 #include <cstring>
 #include <algorithm>
+#include <unordered_map>
 
 #include <sdrplay_api.h>
 
@@ -286,21 +287,6 @@ public:
     
     mutable std::mutex _general_state_mutex;
 
-#if 0
-    std::mutex _buf_mutex;
-    std::condition_variable _buf_cond;
-
-    std::vector<std::vector<short> > _buffs;
-    size_t	_buf_head;
-    size_t	_buf_tail;
-    size_t	_buf_count;
-    short *_currentBuff;
-    bool _overflowEvent;
-    std::atomic_size_t bufferedElems;
-    size_t _currentHandle;
-    std::atomic_bool resetBuffer;
-#endif
-
     class Buffer
     {
     public:
@@ -323,4 +309,6 @@ public:
 
     Buffer *_buffersByTuner[2];
     Buffer *_buffersByChannel[2];
+
+    constexpr static double defaultRspDuoSampleFreq = 6000000;
 };

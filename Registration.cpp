@@ -52,9 +52,85 @@ static void close_sdrplay_api(void)
 
 static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
 {
+   std::unordered_map<int,std::string> deviceNames = {
+       {SDRPLAY_RSP1_ID,   "RSP1"},
+       {SDRPLAY_RSP1A_ID,  "RSP1A"},
+       {SDRPLAY_RSP2_ID,   "RSP2"},
+       {SDRPLAY_RSPduo_ID, "RSPduo"},
+       {SDRPLAY_RSPdx_ID,  "RSPdx"}
+   };
+   std::unordered_map<sdrplay_api_RspDuoModeT,std::string> rspDuoModeNames = {
+       {sdrplay_api_RspDuoMode_Unknown,      "Unknown"},
+       {sdrplay_api_RspDuoMode_Single_Tuner, "Single"},
+       {sdrplay_api_RspDuoMode_Dual_Tuner,   "Dual Tuner"},
+       {sdrplay_api_RspDuoMode_Master,       "Master"},
+       {sdrplay_api_RspDuoMode_Slave,        "Slave"}
+   };
+   std::unordered_map<sdrplay_api_TunerSelectT,std::string> tunerNames = {
+       {sdrplay_api_Tuner_Neither, "Neither"},
+       {sdrplay_api_Tuner_A,       "A"},
+       {sdrplay_api_Tuner_B,       "B"},
+       {sdrplay_api_Tuner_Both,    "Both"}
+   };
+
    std::vector<SoapySDR::Kwargs> results;
    std::string labelHint;
    if (args.count("label") != 0) labelHint = args.at("label");
+
+   sdrplay_api_RspDuoModeT rspDuoModeHint = sdrplay_api_RspDuoMode_Unknown;
+   if (args.count("rspduo_mode") != 0)
+   {
+      try
+      {
+         rspDuoModeHint = (sdrplay_api_RspDuoModeT) stoi(args.at("rspduo_mode"));
+      }
+      catch (std::invalid_argument&)
+      {
+         bool found = false;
+         for (auto rspDuoModeName : rspDuoModeNames)
+         {
+            if (strcasecmp(args.at("rspduo_mode").c_str(),
+                           rspDuoModeName.second.c_str()) == 0)
+            {
+               found = true;
+               rspDuoModeHint = rspDuoModeName.first;
+               break;
+            }
+         }
+         if (!found)
+         {
+            throw;
+         }
+      }
+   }
+
+   sdrplay_api_TunerSelectT tunerHint = sdrplay_api_Tuner_Neither;
+   if (args.count("tuner") != 0)
+   {
+      try
+      {
+         tunerHint = (sdrplay_api_TunerSelectT) stoi(args.at("tuner"));
+      }
+      catch (std::invalid_argument&)
+      {
+         bool found = false;
+         for (auto tunerName : tunerNames)
+         {
+            if (strcasecmp(args.at("tuner").c_str(),
+                           tunerName.second.c_str()) == 0)
+            {
+               found = true;
+               tunerHint = tunerName.first;
+               break;
+            }
+         }
+         if (!found)
+         {
+            throw;
+         }
+      }
+   }
+
    unsigned int nDevs = 0;
    char lblstr[128];
 
@@ -88,58 +164,102 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
 
    size_t posidx = labelHint.find(baseLabel);
 
+   int labelDevIdx = -1;
    if (posidx != std::string::npos)
-   {
-      unsigned int devIdx = labelHint.at(posidx + baseLabel.length()) - 0x30;
+      labelDevIdx = labelHint.at(posidx + baseLabel.length()) - 0x30;
 
-      if (devIdx < nDevs)
-      {
-         SoapySDR::Kwargs dev;
-         dev["driver"] = "sdrplay";
-         if (rspDevs[devIdx].hwVer == SDRPLAY_RSP1A_ID)
-         {
-             sprintf_s(lblstr, 128, "SDRplay Dev%d RSP1A %s", devIdx, rspDevs[devIdx].SerNo);
-         }
-         else if (rspDevs[devIdx].hwVer == SDRPLAY_RSPduo_ID)
-         {
-             sprintf_s(lblstr, 128, "SDRplay Dev%d RSPduo %s", devIdx, rspDevs[devIdx].SerNo);
-         }
-         else if (rspDevs[devIdx].hwVer == SDRPLAY_RSPdx_ID)
-         {
-             sprintf_s(lblstr, 128, "SDRplay Dev%d RSPdx %s", devIdx, rspDevs[devIdx].SerNo);
-         }
-         else
-         {
-             sprintf_s(lblstr, 128, "SDRplay Dev%d RSP%d %s", devIdx, rspDevs[devIdx].hwVer, rspDevs[devIdx].SerNo);
-         }
-         dev["label"] = lblstr;
-         results.push_back(dev);
-      }
-   }
-   else
+   int devIdx = 0;
+   for (unsigned int i = 0; i < nDevs; ++i)
    {
-      for (unsigned int i = 0; i < nDevs; i++)
+      switch (rspDevs[i].hwVer)
       {
-         SoapySDR::Kwargs dev;
-         dev["driver"] = "sdrplay";
-         if (rspDevs[i].hwVer == SDRPLAY_RSP1A_ID)
+      case SDRPLAY_RSP1_ID:
+      case SDRPLAY_RSP1A_ID:
+      case SDRPLAY_RSP2_ID:
+      case SDRPLAY_RSPdx_ID:
+         if (labelDevIdx < 0 || devIdx == labelDevIdx)
          {
-            sprintf_s(lblstr, 128, "SDRplay Dev%d RSP1A %.*s", i, SDRPLAY_MAX_SER_NO_LEN, rspDevs[i].SerNo);
+            SoapySDR::Kwargs dev;
+            dev["driver"] = "sdrplay";
+            sprintf_s(lblstr, 128, "%s%d %s %.*s",
+                      baseLabel.c_str(), devIdx,
+                      deviceNames[rspDevs[i].hwVer].c_str(),
+                      SDRPLAY_MAX_SER_NO_LEN, rspDevs[i].SerNo);
+            dev["label"] = lblstr;
+            results.push_back(dev);
          }
-         else if (rspDevs[i].hwVer == SDRPLAY_RSPduo_ID)
+         ++devIdx;
+         break;
+      case SDRPLAY_RSPduo_ID:
+         for (sdrplay_api_RspDuoModeT rspDuoMode : {
+                  sdrplay_api_RspDuoMode_Single_Tuner,
+                  sdrplay_api_RspDuoMode_Dual_Tuner,
+                  sdrplay_api_RspDuoMode_Master,
+                  sdrplay_api_RspDuoMode_Slave})
          {
-            sprintf_s(lblstr, 128, "SDRplay Dev%d RSPduo %.*s", i, SDRPLAY_MAX_SER_NO_LEN, rspDevs[i].SerNo);
+            if (rspDevs[i].rspDuoMode & rspDuoMode)
+            {
+               if (rspDuoMode == sdrplay_api_RspDuoMode_Dual_Tuner)
+               {
+                  if (rspDevs[i].tuner == sdrplay_api_Tuner_Both)
+                  {
+                     if ((labelDevIdx < 0 || devIdx == labelDevIdx) &&
+                         (rspDuoModeHint == sdrplay_api_RspDuoMode_Unknown ||
+                          rspDuoMode == rspDuoModeHint) &&
+                         (tunerHint == sdrplay_api_Tuner_Neither ||
+                          sdrplay_api_Tuner_Both == tunerHint))
+                     {
+                        SoapySDR::Kwargs dev;
+                        dev["driver"] = "sdrplay";
+                        sprintf_s(lblstr, 128, "%s%d %s %.*s - %s",
+                                  baseLabel.c_str(), devIdx,
+                                  deviceNames[rspDevs[i].hwVer].c_str(),
+                                  SDRPLAY_MAX_SER_NO_LEN, rspDevs[i].SerNo,
+                                  rspDuoModeNames[rspDuoMode].c_str());
+                        dev["label"] = lblstr;
+                        dev["rspduo_mode"] = std::to_string(rspDuoMode);
+                        dev["tuner"] = std::to_string(rspDevs[i].tuner);
+                        dev["rspduo_sample_freq"] = std::to_string(SoapySDRPlay::defaultRspDuoSampleFreq);
+                        results.push_back(dev);
+                     }
+                     ++devIdx;
+                  }
+               } else {
+                  for (sdrplay_api_TunerSelectT tuner : {
+                           sdrplay_api_Tuner_A,
+                           sdrplay_api_Tuner_B})
+                  {
+                     if (rspDevs[i].tuner & tuner)
+                     {
+                        if ((labelDevIdx < 0 || devIdx == labelDevIdx) &&
+                            (rspDuoModeHint == sdrplay_api_RspDuoMode_Unknown ||
+                             rspDuoMode == rspDuoModeHint) &&
+                            (tunerHint == sdrplay_api_Tuner_Neither ||
+                             tuner == tunerHint))
+                        {
+                           SoapySDR::Kwargs dev;
+                           dev["driver"] = "sdrplay";
+                           sprintf_s(lblstr, 128, "%s%d %s %.*s - Tuner %s %s",
+                                     baseLabel.c_str(), devIdx,
+                                     deviceNames[rspDevs[i].hwVer].c_str(),
+                                     SDRPLAY_MAX_SER_NO_LEN, rspDevs[i].SerNo,
+                                     tunerNames[tuner].c_str(),
+                                     rspDuoModeNames[rspDuoMode].c_str());
+                           dev["label"] = lblstr;
+                           dev["rspduo_mode"] = std::to_string(rspDuoMode);
+                           dev["tuner"] = std::to_string(tuner);
+                           dev["rspduo_sample_freq"] = std::to_string(
+                                  rspDuoMode == sdrplay_api_RspDuoMode_Slave ?
+                                  rspDevs[i].rspDuoSampleFreq : SoapySDRPlay::defaultRspDuoSampleFreq);
+                           results.push_back(dev);
+                        }
+                        ++devIdx;
+                     }
+                  }
+               }
+            }
          }
-         else if (rspDevs[i].hwVer == SDRPLAY_RSPdx_ID)
-         {
-            sprintf_s(lblstr, 128, "SDRplay Dev%d RSPdx %.*s", i, SDRPLAY_MAX_SER_NO_LEN, rspDevs[i].SerNo);
-         }
-         else
-         {
-            sprintf_s(lblstr, 128, "SDRplay Dev%d RSP%d %.*s", i, rspDevs[i].hwVer, SDRPLAY_MAX_SER_NO_LEN, rspDevs[i].SerNo);
-         }
-         dev["label"] = lblstr;
-         results.push_back(dev);
+         break;
       }
    }
 
