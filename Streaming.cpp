@@ -369,12 +369,12 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
 }
 
 int SoapySDRPlay::readChannel(SoapySDR::Stream *stream,
-                               void *buff,
-                               const size_t numElems,
-                               int &flags,
-                               long long &timeNs,
-                               const long timeoutUs,
-                               Buffer *daBuf)
+                              void *buff,
+                              const size_t numElems,
+                              int &flags,
+                              long long &timeNs,
+                              const long timeoutUs,
+                              Buffer *daBuf)
 {
     // are elements left in the buffer? if not, do a new read.
     if (daBuf->nElems == 0)
@@ -496,6 +496,7 @@ int SoapySDRPlay::acquireReadBuffer(SoapySDR::Stream *stream,
         daBuf->cond.wait_for(lock, std::chrono::microseconds(timeoutUs));
         if (daBuf->count == 0) 
         {
+           //SoapySDR_logf(SOAPY_SDR_WARNING, "acquireReadBuffer() returning timeout [%d] after %ld microseconds", SOAPY_SDR_TIMEOUT, timeoutUs);
            return SOAPY_SDR_TIMEOUT;
         }
     }

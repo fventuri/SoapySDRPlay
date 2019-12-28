@@ -254,6 +254,8 @@ private:
 
     static std::string IFtoString(sdrplay_api_If_kHzT ifkHzT);
 
+    void reselectDevice();
+
     /*******************************************************************
      * Private variables
      ******************************************************************/
