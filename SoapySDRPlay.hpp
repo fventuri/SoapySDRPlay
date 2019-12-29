@@ -36,7 +36,6 @@
 #include <string>
 #include <cstring>
 #include <algorithm>
-#include <unordered_map>
 
 #include <sdrplay_api.h>
 
@@ -228,6 +227,22 @@ public:
 
     void ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSelectT tuner, sdrplay_api_EventParamsT *params);
 
+    /*******************************************************************
+     * public utility static methods
+     ******************************************************************/
+
+    static unsigned char stringToHWVer(std::string hwVer);
+
+    static std::string HWVertoString(unsigned char hwVer);
+
+    static sdrplay_api_RspDuoModeT stringToRSPDuoMode(std::string rspDuoMode);
+
+    static std::string RSPDuoModetoString(sdrplay_api_RspDuoModeT rspDuoMode);
+
+    static sdrplay_api_TunerSelectT stringToTuner(std::string tuner);
+
+    static std::string tunertoString(sdrplay_api_TunerSelectT tuner);
+
 private:
 
     /*******************************************************************
@@ -243,12 +258,6 @@ private:
     static  double getBwValueFromEnum(sdrplay_api_Bw_MHzT bwEnum);
 
     static sdrplay_api_Bw_MHzT sdrPlayGetBwMhzEnum(double bw);
-
-    static sdrplay_api_TunerSelectT rspDuoModeStringToTuner(std::string rspDuoMode);
-
-    static sdrplay_api_RspDuoModeT rspDuoModeStringToRspDuoMode(std::string rspDuoMode);
-
-    static std::string rspDuoModetoString(sdrplay_api_TunerSelectT tuner, sdrplay_api_RspDuoModeT rspDuoMode);
 
     static sdrplay_api_If_kHzT stringToIF(std::string ifMode);
 

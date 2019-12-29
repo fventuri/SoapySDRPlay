@@ -496,7 +496,6 @@ int SoapySDRPlay::acquireReadBuffer(SoapySDR::Stream *stream,
         daBuf->cond.wait_for(lock, std::chrono::microseconds(timeoutUs));
         if (daBuf->count == 0) 
         {
-           //SoapySDR_logf(SOAPY_SDR_WARNING, "acquireReadBuffer() returning timeout [%d] after %ld microseconds", SOAPY_SDR_TIMEOUT, timeoutUs);
            return SOAPY_SDR_TIMEOUT;
         }
     }

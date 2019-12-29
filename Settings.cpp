@@ -1043,6 +1043,135 @@ std::string SoapySDRPlay::IFtoString(sdrplay_api_If_kHzT ifkHzT)
    return "";
 }
 
+unsigned char SoapySDRPlay::stringToHWVer(std::string hwVer)
+{
+   if (hwVer == "RSP1")
+   {
+      return SDRPLAY_RSP1_ID;
+   }
+   else if (hwVer == "RSP1A")
+   {
+      return SDRPLAY_RSP1A_ID;
+   }
+   else if (hwVer == "RSP2")
+   {
+      return SDRPLAY_RSP2_ID;
+   }
+   else if (hwVer == "RSPduo")
+   {
+      return SDRPLAY_RSPduo_ID;
+   }
+   else if (hwVer == "RSPdx")
+   {
+      return SDRPLAY_RSPdx_ID;
+   }
+   return 0;
+}
+
+std::string SoapySDRPlay::HWVertoString(unsigned char hwVer)
+{
+   switch (hwVer)
+   {
+   case SDRPLAY_RSP1_ID:
+      return "RSP1";
+      break;
+   case SDRPLAY_RSP1A_ID:
+      return "RSP1A";
+      break;
+   case SDRPLAY_RSP2_ID:
+      return "RSP2";
+      break;
+   case SDRPLAY_RSPduo_ID:
+      return "RSPduo";
+      break;
+   case SDRPLAY_RSPdx_ID:
+      return "RSPdx";
+      break;
+   }
+   return "";
+}
+
+sdrplay_api_RspDuoModeT SoapySDRPlay::stringToRSPDuoMode(std::string rspDuoMode)
+{
+   if (rspDuoMode == "Single")
+   {
+      return sdrplay_api_RspDuoMode_Single_Tuner;
+   }
+   else if (rspDuoMode == "Dual Tuner")
+   {
+      return sdrplay_api_RspDuoMode_Dual_Tuner;
+   }
+   else if (rspDuoMode == "Master")
+   {
+      return sdrplay_api_RspDuoMode_Master;
+   }
+   else if (rspDuoMode == "Slave")
+   {
+      return sdrplay_api_RspDuoMode_Slave;
+   }
+   return sdrplay_api_RspDuoMode_Unknown;
+}
+
+std::string SoapySDRPlay::RSPDuoModetoString(sdrplay_api_RspDuoModeT rspDuoMode)
+{
+   switch (rspDuoMode)
+   {
+   case sdrplay_api_RspDuoMode_Unknown:
+      return "";
+      break;
+   case sdrplay_api_RspDuoMode_Single_Tuner:
+      return "Single";
+      break;
+   case sdrplay_api_RspDuoMode_Dual_Tuner:
+      return "Dual Tuner";
+      break;
+   case sdrplay_api_RspDuoMode_Master:
+      return "Master";
+      break;
+   case sdrplay_api_RspDuoMode_Slave:
+      return "Slave";
+      break;
+   }
+   return "";
+}
+
+sdrplay_api_TunerSelectT SoapySDRPlay::stringToTuner(std::string tuner)
+{
+   if (tuner == "A")
+   {
+      return sdrplay_api_Tuner_A;
+   }
+   else if (tuner == "B")
+   {
+      return sdrplay_api_Tuner_B;
+   }
+   else if (tuner == "Both")
+   {
+      return sdrplay_api_Tuner_Both;
+   }
+   return sdrplay_api_Tuner_Neither;
+}
+
+std::string SoapySDRPlay::tunertoString(sdrplay_api_TunerSelectT tuner)
+{
+   switch (tuner)
+   {
+   case sdrplay_api_Tuner_Neither:
+      return "";
+      break;
+   case sdrplay_api_Tuner_A:
+      return "A";
+      break;
+   case sdrplay_api_Tuner_B:
+      return "B";
+      break;
+   case sdrplay_api_Tuner_Both:
+      return "Both";
+      break;
+   }
+   return "";
+}
+
 SoapySDR::ArgInfoList SoapySDRPlay::getSettingInfo(void) const
 {
     SoapySDR::ArgInfoList setArgs;
