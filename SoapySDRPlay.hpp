@@ -247,7 +247,7 @@ private:
 
     static double getRateForBwEnum(sdrplay_api_Bw_MHzT bwEnum);
 
-    static uint32_t getInputSampleRateAndDecimation(uint32_t rate, unsigned int *decM, unsigned int *decEnable, sdrplay_api_If_kHzT ifMode);
+    static uint32_t getInputSampleRateAndDecimation(uint32_t rate, unsigned int *decM, unsigned int *decEnable, sdrplay_api_If_kHzT ifType, double rspDuoSampleFreq);
 
     static sdrplay_api_Bw_MHzT getBwEnumForRate(double rate, sdrplay_api_If_kHzT ifMode);
 
@@ -258,10 +258,6 @@ private:
     static sdrplay_api_If_kHzT stringToIF(std::string ifMode);
 
     static std::string IFtoString(sdrplay_api_If_kHzT ifkHzT);
-
-    static sdrplay_api_TunerSelectT stringToTuner(std::string tuner);
-
-    static std::string tunertoString(sdrplay_api_TunerSelectT tuner);
 
     void reselectDevice(sdrplay_api_TunerSelectT new_tuner=sdrplay_api_Tuner_Neither);
 
@@ -322,4 +318,5 @@ public:
     Buffer *_buffersByChannel[2];
 
     constexpr static double defaultRspDuoSampleFreq = 6000000;
+    constexpr static uint32_t defaultRspDuoOutputSampleRate = 2000000;
 };
