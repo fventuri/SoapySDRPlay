@@ -2,7 +2,7 @@
  * The MIT License (MIT)
  * 
  * Copyright (c) 2015 Charles J. Cliffe
- * Copyright (c) 2019 Franco Venturi - changes for SDRplay API version 3
+ * Copyright (c) 2020 Franco Venturi - changes for SDRplay API version 3
  *                                     and Dual Tuner for RSPduo
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -97,6 +97,7 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
             {
                 deviceFound = true;
                 device = rspDevs[i];
+                hardwareKey = device.SerNo;
             }
             ++idx;
             break;
@@ -115,18 +116,28 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
                     {
                         deviceFound = true;
                         device = rspDevs[i];
+                        hardwareKey = device.SerNo;
                         device.rspDuoMode = rspDuoMode;
                         if (rspDuoMode == sdrplay_api_RspDuoMode_Single_Tuner)
                         {
-                            device.rspDuoSampleFreq = defaultRspDuoSampleFreq;
+                            hardwareKey += " - Single Tuner";
+                            //device.rspDuoSampleFreq = defaultRspDuoSampleFreq;
+                            device.rspDuoSampleFreq = 0.0;
                         }
                         else if (rspDuoMode == sdrplay_api_RspDuoMode_Dual_Tuner)
                         {
+                            hardwareKey += " - Dual Tuner";
                             device.rspDuoSampleFreq = defaultRspDuoSampleFreq;
                         }
                         else if (rspDuoMode == sdrplay_api_RspDuoMode_Master)
                         {
+                            hardwareKey += " - Master";
                             device.rspDuoSampleFreq = isMasterAt8Mhz ? 8000000 : defaultRspDuoSampleFreq;
+                            hardwareKey += isMasterAt8Mhz ? " (RSPduo sample rate=8Mhz)" : "";
+                        }
+                        else if (rspDuoMode == sdrplay_api_RspDuoMode_Slave)
+                        {
+                            hardwareKey += " - Slave";
                         }
                         break;
                     }
@@ -216,9 +227,13 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
     if (deviceParams->devParams) {
         deviceParams->devParams->ppm = 0.0;
     }
-    chParams->tunerParams.ifType = sdrplay_api_IF_1_620;
-    if (device.hwVer == SDRPLAY_RSPduo_ID && fabs(device.rspDuoSampleFreq - 8000000) < 10) {
-        chParams->tunerParams.ifType = sdrplay_api_IF_2_048;
+    chParams->tunerParams.ifType = sdrplay_api_IF_Zero;
+    if (device.hwVer == SDRPLAY_RSPduo_ID) {
+        if (fabs(device.rspDuoSampleFreq - 6000000) < 10) {
+            chParams->tunerParams.ifType = sdrplay_api_IF_1_620;
+        } else if (fabs(device.rspDuoSampleFreq - 8000000) < 10) {
+            chParams->tunerParams.ifType = sdrplay_api_IF_2_048;
+        }
     }
     chParams->tunerParams.bwType = sdrplay_api_BW_1_536;
     chParams->tunerParams.gain.gRdB = 40;
@@ -303,7 +318,7 @@ std::string SoapySDRPlay::getDriverKey(void) const
 
 std::string SoapySDRPlay::getHardwareKey(void) const
 {
-    return device.SerNo;
+    return hardwareKey;
 }
 
 SoapySDR::Kwargs SoapySDRPlay::getHardwareInfo(void) const
@@ -721,7 +736,12 @@ void SoapySDRPlay::setFrequency(const int direction,
                                  const double frequency,
                                  const SoapySDR::Kwargs &args)
 {
-    std::lock_guard <std::mutex> lock(_general_state_mutex);
+   std::lock_guard <std::mutex> lock(_general_state_mutex);
+
+   if (&device != deviceSelected)
+   {
+      reselectDevice();
+   }
 
    if (direction == SOAPY_SDR_RX)
    {
@@ -1772,6 +1792,15 @@ std::string SoapySDRPlay::readSetting(const std::string &key) const
 
 void SoapySDRPlay::reselectDevice(sdrplay_api_TunerSelectT new_tuner)
 {
+    if (isSdrplayApiOpen == false)
+    {
+        sdrplay_api_ErrT err;
+        if ((err = sdrplay_api_Open()) != sdrplay_api_Success) {
+            return;
+        }
+        isSdrplayApiOpen = true;
+    }
+
     if (streamActive)
     {
         sdrplay_api_Uninit(device.dev);
@@ -1782,15 +1811,18 @@ void SoapySDRPlay::reselectDevice(sdrplay_api_TunerSelectT new_tuner)
 
     sdrplay_api_LockDeviceApi();
 
-    err = sdrplay_api_ReleaseDevice(deviceSelected);
-    if (err != sdrplay_api_Success)
+    if (deviceSelected)
     {
-        sdrplay_api_UnlockDeviceApi();
-        SoapySDR_logf(SOAPY_SDR_ERROR, "ReleaseDevice Error: %s", sdrplay_api_GetErrorString(err));
-        throw std::runtime_error("ReleaseDevice() failed");
-        return;
+        err = sdrplay_api_ReleaseDevice(deviceSelected);
+        if (err != sdrplay_api_Success)
+        {
+            sdrplay_api_UnlockDeviceApi();
+            SoapySDR_logf(SOAPY_SDR_ERROR, "ReleaseDevice Error: %s", sdrplay_api_GetErrorString(err));
+            throw std::runtime_error("ReleaseDevice() failed");
+            return;
+        }
+        deviceSelected = nullptr;
     }
-    deviceSelected = nullptr;
 
     if (new_tuner != sdrplay_api_Tuner_Neither)
     {

@@ -2,7 +2,7 @@
  * The MIT License (MIT)
  * 
  * Copyright (c) 2015 Charles J. Cliffe
- * Copyright (c) 2019 Franco Venturi - changes for SDRplay API version 3
+ * Copyright (c) 2020 Franco Venturi - changes for SDRplay API version 3
  *                                     and Dual Tuner for RSPduo
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -286,8 +286,8 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
 
     // Enable (= sdrplay_api_DbgLvl_Verbose) API calls tracing,
     // but only for debug purposes due to its performance impact.
-    sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Disable);
-    //sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Verbose);
+    //sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Disable);
+    sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Verbose);
 
     // temporary fix for ARM targets.
 #if defined(__arm__) || defined(__aarch64__)
