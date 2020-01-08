@@ -245,19 +245,17 @@ private:
      * Internal functions
      ******************************************************************/
 
-    static double getRateForBwEnum(sdrplay_api_Bw_MHzT bwEnum);
-
     static uint32_t getInputSampleRateAndDecimation(uint32_t rate, unsigned int *decM, unsigned int *decEnable, sdrplay_api_If_kHzT ifType, double rspDuoSampleFreq);
 
-    static sdrplay_api_Bw_MHzT getBwEnumForRate(double rate, sdrplay_api_If_kHzT ifMode);
+    sdrplay_api_If_kHzT getIfEnumForRate(const double rate) const;
+
+    static sdrplay_api_Bw_MHzT getBwEnumForRate(double rate, sdrplay_api_If_kHzT ifMode, bool rspDuoNonSingleMode);
 
     static  double getBwValueFromEnum(sdrplay_api_Bw_MHzT bwEnum);
 
     static sdrplay_api_Bw_MHzT sdrPlayGetBwMhzEnum(double bw);
 
     void reselectDevice(sdrplay_api_TunerSelectT new_tuner=sdrplay_api_Tuner_Neither);
-
-    sdrplay_api_If_kHzT selectIFType(const double rate) const;
 
     /*******************************************************************
      * Private variables
