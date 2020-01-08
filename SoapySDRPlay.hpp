@@ -255,11 +255,9 @@ private:
 
     static sdrplay_api_Bw_MHzT sdrPlayGetBwMhzEnum(double bw);
 
-    static sdrplay_api_If_kHzT stringToIF(std::string ifMode);
-
-    static std::string IFtoString(sdrplay_api_If_kHzT ifkHzT);
-
     void reselectDevice(sdrplay_api_TunerSelectT new_tuner=sdrplay_api_Tuner_Neither);
+
+    sdrplay_api_If_kHzT selectIFType(const double rate) const;
 
     /*******************************************************************
      * Private variables

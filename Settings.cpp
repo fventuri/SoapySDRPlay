@@ -227,14 +227,7 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
     if (deviceParams->devParams) {
         deviceParams->devParams->ppm = 0.0;
     }
-    chParams->tunerParams.ifType = sdrplay_api_IF_Zero;
-    if (device.hwVer == SDRPLAY_RSPduo_ID) {
-        if (fabs(device.rspDuoSampleFreq - 6000000) < 10) {
-            chParams->tunerParams.ifType = sdrplay_api_IF_1_620;
-        } else if (fabs(device.rspDuoSampleFreq - 8000000) < 10) {
-            chParams->tunerParams.ifType = sdrplay_api_IF_2_048;
-        }
-    }
+    chParams->tunerParams.ifType = selectIFType((double)sampleRate);
     chParams->tunerParams.bwType = sdrplay_api_BW_1_536;
     chParams->tunerParams.gain.gRdB = 40;
     chParams->tunerParams.gain.LNAstate = (device.hwVer == SDRPLAY_RSP2_ID ||
@@ -826,6 +819,9 @@ void SoapySDRPlay::setSampleRate(const int direction, const size_t channel, cons
 
     if (direction == SOAPY_SDR_RX)
     {
+       // choose the IF type based on the sample rate as suggested by vsonnier
+       chParams->tunerParams.ifType = selectIFType(rate);
+
        sampleRate = (uint32_t)rate;
 
        unsigned int decM;
@@ -1075,50 +1071,6 @@ sdrplay_api_Bw_MHzT SoapySDRPlay::sdrPlayGetBwMhzEnum(double bw)
 * Settings API
 ******************************************************************/
 
-sdrplay_api_If_kHzT SoapySDRPlay::stringToIF(std::string ifType)
-{
-   if (ifType == "Zero-IF")
-   {
-      return sdrplay_api_IF_Zero;
-   }
-   else if (ifType == "450kHz")
-   {
-      return sdrplay_api_IF_0_450;
-   }
-   else if (ifType == "1620kHz")
-   {
-      return sdrplay_api_IF_1_620;
-   }
-   else if (ifType == "2048kHz")
-   {
-      return sdrplay_api_IF_2_048;
-   }
-   return sdrplay_api_IF_Zero;
-}
-
-std::string SoapySDRPlay::IFtoString(sdrplay_api_If_kHzT ifkHzT)
-{
-   switch (ifkHzT)
-   {
-   case sdrplay_api_IF_Zero:
-      return "Zero-IF";
-      break;
-   case sdrplay_api_IF_0_450:
-      return "450kHz";
-      break;
-   case sdrplay_api_IF_1_620:
-      return "1620kHz";
-      break;
-   case sdrplay_api_IF_2_048:
-      return "2048kHz";
-      break;
-   case sdrplay_api_IF_Undefined:
-      return "";
-      break;
-   }
-   return "";
-}
-
 unsigned char SoapySDRPlay::stringToHWVer(std::string hwVer)
 {
    if (strcasecmp(hwVer.c_str(), "RSP1") == 0)
@@ -1329,30 +1281,6 @@ SoapySDR::ArgInfoList SoapySDRPlay::getSettingInfo(void) const
     }
 #endif
 
-    SoapySDR::ArgInfo AIFArg;
-    AIFArg.key = "if_mode";
-    AIFArg.value = IFtoString(chParams->tunerParams.ifType);
-    AIFArg.name = "IF Mode";
-    AIFArg.description = "IF frequency in kHz";
-    AIFArg.type = SoapySDR::ArgInfo::STRING;
-    if (device.hwVer == SDRPLAY_RSPduo_ID &&
-        (device.rspDuoMode == sdrplay_api_RspDuoMode_Dual_Tuner ||
-         device.rspDuoMode == sdrplay_api_RspDuoMode_Master ||
-         device.rspDuoMode == sdrplay_api_RspDuoMode_Slave))
-    {
-        if (fabs(device.rspDuoSampleFreq - 6000000) < 10) {
-            AIFArg.options.push_back(IFtoString(sdrplay_api_IF_1_620));
-        } else if (fabs(device.rspDuoSampleFreq - 8000000) < 10) {
-            AIFArg.options.push_back(IFtoString(sdrplay_api_IF_2_048));
-        }
-    } else {
-        AIFArg.options.push_back(IFtoString(sdrplay_api_IF_Zero));
-        AIFArg.options.push_back(IFtoString(sdrplay_api_IF_0_450));
-        AIFArg.options.push_back(IFtoString(sdrplay_api_IF_1_620));
-        AIFArg.options.push_back(IFtoString(sdrplay_api_IF_2_048));
-    }
-    setArgs.push_back(AIFArg);
-
     SoapySDR::ArgInfo IQcorrArg;
     IQcorrArg.key = "iqcorr_ctrl";
     IQcorrArg.value = "true";
@@ -1510,26 +1438,7 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
    }
    else
 #endif
-   if (key == "if_mode")
-   {
-      if (chParams->tunerParams.ifType != stringToIF(value))
-      {
-         chParams->tunerParams.ifType = stringToIF(value);
-         unsigned int decM;
-         unsigned int decEnable;
-         uint32_t actualSampleRate = getInputSampleRateAndDecimation(sampleRate, &decM, &decEnable, chParams->tunerParams.ifType, device.rspDuoSampleFreq);
-         deviceParams->devParams->fsFreq.fsHz = actualSampleRate;
-         chParams->tunerParams.bwType = getBwEnumForRate((double)sampleRate, chParams->tunerParams.ifType);
-         if (streamActive)
-         {
-            chParams->ctrlParams.decimation.enable = 0;
-            chParams->ctrlParams.decimation.decimationFactor = 1;
-            chParams->ctrlParams.decimation.wideBandSignal = 1;
-            sdrplay_api_Update(device.dev, device.tuner, (sdrplay_api_ReasonForUpdateT) (sdrplay_api_Update_Dev_Fs | sdrplay_api_Update_Tuner_BwType | sdrplay_api_Update_Tuner_IfType), sdrplay_api_Update_Ext1_None);
-         }
-      }
-   }
-   else if (key == "iqcorr_ctrl")
+   if (key == "iqcorr_ctrl")
    {
       if (value == "false") chParams->ctrlParams.dcOffset.IQenable = 0;
       else                  chParams->ctrlParams.dcOffset.IQenable = 1;
@@ -1719,11 +1628,7 @@ std::string SoapySDRPlay::readSetting(const std::string &key) const
     }
     else
 #endif
-    if (key == "if_mode")
-    {
-        return IFtoString(chParams->tunerParams.ifType);
-    }
-    else if (key == "iqcorr_ctrl")
+    if (key == "iqcorr_ctrl")
     {
        if (chParams->ctrlParams.dcOffset.IQenable == 0) return "false";
        else                                             return "true";
@@ -1851,4 +1756,20 @@ void SoapySDRPlay::reselectDevice(sdrplay_api_TunerSelectT new_tuner)
     chParams = device.tuner == sdrplay_api_Tuner_B ? deviceParams->rxChannelB : deviceParams->rxChannelA;
 
     return;
+}
+
+// compute IF type based on sample rate
+sdrplay_api_If_kHzT SoapySDRPlay::selectIFType(const double rate) const
+{
+    // 1. RSPduo in dual tuner/master/slave mode
+    if (device.hwVer == SDRPLAY_RSPduo_ID) {
+        if (fabs(device.rspDuoSampleFreq - 6000000) < 10) {
+            return sdrplay_api_IF_1_620;
+        } else if (fabs(device.rspDuoSampleFreq - 8000000) < 10) {
+            return sdrplay_api_IF_2_048;
+        }
+    }
+
+    // everything else
+    return sdrplay_api_IF_Zero;
 }
