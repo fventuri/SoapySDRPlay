@@ -228,8 +228,7 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
         deviceParams->devParams->ppm = 0.0;
     }
     chParams->tunerParams.ifType = getIfEnumForRate((double)sampleRate);
-    bool rspDuoNonSingleMode = device.hwVer == SDRPLAY_RSPduo_ID && (device.rspDuoMode == sdrplay_api_RspDuoMode_Dual_Tuner || device.rspDuoMode == sdrplay_api_RspDuoMode_Master || device.rspDuoMode == sdrplay_api_RspDuoMode_Slave);
-    chParams->tunerParams.bwType = getBwEnumForRate((double)sampleRate, chParams->tunerParams.ifType, rspDuoNonSingleMode);
+    chParams->tunerParams.bwType = getBwEnumForRate((double)sampleRate);
     chParams->tunerParams.gain.gRdB = 40;
     chParams->tunerParams.gain.LNAstate = (device.hwVer == SDRPLAY_RSP2_ID ||
         device.hwVer == SDRPLAY_RSPduo_ID || device.hwVer == SDRPLAY_RSP1A_ID ||
@@ -828,8 +827,7 @@ void SoapySDRPlay::setSampleRate(const int direction, const size_t channel, cons
        unsigned int decM;
        unsigned int decEnable;
        uint32_t actualSampleRate = getInputSampleRateAndDecimation(sampleRate, &decM, &decEnable, chParams->tunerParams.ifType, device.rspDuoSampleFreq);
-       bool rspDuoNonSingleMode = device.hwVer == SDRPLAY_RSPduo_ID && (device.rspDuoMode == sdrplay_api_RspDuoMode_Dual_Tuner || device.rspDuoMode == sdrplay_api_RspDuoMode_Master || device.rspDuoMode == sdrplay_api_RspDuoMode_Slave);
-       sdrplay_api_Bw_MHzT bwType = getBwEnumForRate(rate, chParams->tunerParams.ifType, rspDuoNonSingleMode);
+       sdrplay_api_Bw_MHzT bwType = getBwEnumForRate(rate);
 
        sdrplay_api_ReasonForUpdateT reasonForUpdate = sdrplay_api_Update_None;
        if (deviceParams->devParams && actualSampleRate != deviceParams->devParams->fsFreq.fsHz)
@@ -945,20 +943,19 @@ uint32_t SoapySDRPlay::getInputSampleRateAndDecimation(uint32_t rate, unsigned i
 sdrplay_api_If_kHzT SoapySDRPlay::getIfEnumForRate(const double rate) const
 {
     // 1. RSPduo in dual tuner/master/slave mode
-    if (device.hwVer == SDRPLAY_RSPduo_ID) {
-        if (fabs(device.rspDuoSampleFreq - 6000000) < 10) {
+    if (device.hwVer == SDRPLAY_RSPduo_ID &&
+            (device.rspDuoMode == sdrplay_api_RspDuoMode_Dual_Tuner ||
+             device.rspDuoMode == sdrplay_api_RspDuoMode_Master ||
+             device.rspDuoMode == sdrplay_api_RspDuoMode_Slave)) {
+        if (device.rspDuoSampleFreq == 6000000) {
             return sdrplay_api_IF_1_620;
-        } else if (fabs(device.rspDuoSampleFreq - 8000000) < 10) {
+        } else {
             return sdrplay_api_IF_2_048;
         }
     }
 
     // everything else
-    if (rate <= 2000000) {
-        return sdrplay_api_IF_0_450;
-    } else {
-        return sdrplay_api_IF_Zero;
-    }
+    return sdrplay_api_IF_Zero;
 }
 
 /*******************************************************************
@@ -1024,32 +1021,16 @@ SoapySDR::RangeList SoapySDRPlay::getBandwidthRange(const int direction, const s
 }
 
 
-sdrplay_api_Bw_MHzT SoapySDRPlay::getBwEnumForRate(double rate, sdrplay_api_If_kHzT ifType, bool rspDuoNonSingleMode)
+sdrplay_api_Bw_MHzT SoapySDRPlay::getBwEnumForRate(double rate)
 {
-   if (ifType == sdrplay_api_IF_Zero || rspDuoNonSingleMode)
-   {
-      if      ((rate >= 200000)  && (rate < 300000))  return sdrplay_api_BW_0_200;
-      else if ((rate >= 300000)  && (rate < 600000))  return sdrplay_api_BW_0_300;
-      else if ((rate >= 600000)  && (rate < 1536000)) return sdrplay_api_BW_0_600;
-      else if ((rate >= 1536000) && (rate < 5000000)) return sdrplay_api_BW_1_536;
-      else if ((rate >= 5000000) && (rate < 6000000)) return sdrplay_api_BW_5_000;
-      else if ((rate >= 6000000) && (rate < 7000000)) return sdrplay_api_BW_6_000;
-      else if ((rate >= 7000000) && (rate < 8000000)) return sdrplay_api_BW_7_000;
-      else                                            return sdrplay_api_BW_8_000;
-   }
-   else if ((ifType == sdrplay_api_IF_0_450) || (ifType == sdrplay_api_IF_1_620))
-   {
-      if      ((rate >= 200000)  && (rate < 500000))  return sdrplay_api_BW_0_200;
-      else if ((rate >= 500000)  && (rate < 1000000)) return sdrplay_api_BW_0_300;
-      else                                            return sdrplay_api_BW_0_600;
-   }
-   else
-   {
-      if      ((rate >= 200000)  && (rate < 500000))  return sdrplay_api_BW_0_200;
-      else if ((rate >= 500000)  && (rate < 1000000)) return sdrplay_api_BW_0_300;
-      else if ((rate >= 1000000) && (rate < 1536000)) return sdrplay_api_BW_0_600;
-      else                                            return sdrplay_api_BW_1_536;
-   }
+   if                            (rate < 300000)   return sdrplay_api_BW_0_200;
+   else if ((rate >= 300000)  && (rate < 600000))  return sdrplay_api_BW_0_300;
+   else if ((rate >= 600000)  && (rate < 1536000)) return sdrplay_api_BW_0_600;
+   else if ((rate >= 1536000) && (rate < 5000000)) return sdrplay_api_BW_1_536;
+   else if ((rate >= 5000000) && (rate < 6000000)) return sdrplay_api_BW_5_000;
+   else if ((rate >= 6000000) && (rate < 7000000)) return sdrplay_api_BW_6_000;
+   else if ((rate >= 7000000) && (rate < 8000000)) return sdrplay_api_BW_7_000;
+   else                                            return sdrplay_api_BW_8_000;
 }
 
 
@@ -1770,27 +1751,3 @@ void SoapySDRPlay::reselectDevice(sdrplay_api_TunerSelectT new_tuner)
 
     return;
 }
-
-#if 0
-// compute BW type based on sample rate
-sdrplay_api_Bw_MHzT SoapySDRPlay::computeBWType(const double rate) const
-{
-    if (rate < 200000) {
-        return sdrplay_api_BW_0_200;
-    } else if (rate < 300000) {
-        return sdrplay_api_BW_0_300;
-    } else if (rate < 1200000) {
-        return sdrplay_api_BW_0_600;
-    } else if (rate < 5000000) {
-        return sdrplay_api_BW_1_536;
-    } else if (rate < 6000000) {
-        return sdrplay_api_BW_5_000;
-    } else if (rate < 7000000) {
-        return sdrplay_api_BW_6_000;
-    } else if (rate < 8000000) {
-        return sdrplay_api_BW_7_000;
-    } else {
-        return sdrplay_api_BW_8_000;
-    }
-}
-#endif

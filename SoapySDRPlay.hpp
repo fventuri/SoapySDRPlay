@@ -249,7 +249,7 @@ private:
 
     sdrplay_api_If_kHzT getIfEnumForRate(const double rate) const;
 
-    static sdrplay_api_Bw_MHzT getBwEnumForRate(double rate, sdrplay_api_If_kHzT ifMode, bool rspDuoNonSingleMode);
+    static sdrplay_api_Bw_MHzT getBwEnumForRate(double rate);
 
     static  double getBwValueFromEnum(sdrplay_api_Bw_MHzT bwEnum);
 
