@@ -942,7 +942,7 @@ uint32_t SoapySDRPlay::getInputSampleRateAndDecimation(uint32_t rate, unsigned i
 
 sdrplay_api_If_kHzT SoapySDRPlay::getIfEnumForRate(const double rate) const
 {
-    // 1. RSPduo in dual tuner/master/slave mode
+    // RSPduo in dual tuner/master/slave mode
     if (device.hwVer == SDRPLAY_RSPduo_ID &&
             (device.rspDuoMode == sdrplay_api_RspDuoMode_Dual_Tuner ||
              device.rspDuoMode == sdrplay_api_RspDuoMode_Master ||
