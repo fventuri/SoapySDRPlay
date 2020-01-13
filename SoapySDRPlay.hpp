@@ -99,15 +99,6 @@ public:
                    long long &timeNs,
                    const long timeoutUs = 200000);
 
-    class Buffer;
-    int readChannel(SoapySDR::Stream *stream,
-                    void *buff,
-                    const size_t numElems,
-                    int &flags,
-                    long long &timeNs,
-                    const long timeoutUs,
-                    Buffer *daBuf);
-
     /*******************************************************************
      * Direct buffer access API
      ******************************************************************/
@@ -121,8 +112,7 @@ public:
                           const void **buffs,
                           int &flags,
                           long long &timeNs,
-                          const long timeoutUs = 100000,
-                          Buffer *daBuf = 0);
+                          const long timeoutUs = 100000);
 
     void releaseReadBuffer(SoapySDR::Stream *stream, const size_t handle);
 
@@ -223,7 +213,8 @@ public:
      * Async API
      ******************************************************************/
 
-    void rx_callback(short *xi, short *xq, unsigned int numSamples, sdrplay_api_TunerSelectT tuner);
+    class SoapySDRPlayStream;
+    void rx_callback(short *xi, short *xq, unsigned int numSamples, SoapySDRPlayStream *stream);
 
     void ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSelectT tuner, sdrplay_api_EventParamsT *params);
 
@@ -291,11 +282,13 @@ public:
     
     mutable std::mutex _general_state_mutex;
 
-    class Buffer
+    class SoapySDRPlayStream
     {
     public:
-        Buffer(size_t numBuffers, unsigned long bufferLength);
-        ~Buffer(void);
+        SoapySDRPlayStream(size_t channel, size_t numBuffers, unsigned long bufferLength);
+        ~SoapySDRPlayStream(void);
+
+        size_t channel;
 
         std::mutex mutex;
         std::condition_variable cond;
@@ -311,8 +304,7 @@ public:
         std::atomic_bool reset;
     };
 
-    Buffer *_buffersByTuner[2];
-    Buffer *_buffersByChannel[2];
+    SoapySDRPlayStream *_streams[2];
 
     constexpr static double defaultRspDuoSampleFreq = 6000000;
     constexpr static uint32_t defaultRspDuoOutputSampleRate = 2000000;

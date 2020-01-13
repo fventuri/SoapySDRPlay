@@ -268,10 +268,8 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
         chParams->rspDuoTunerParams.rfDabNotchEnable = 0;
     }
 
-    _buffersByTuner[0] = 0;
-    _buffersByTuner[1] = 0;
-    _buffersByChannel[0] = 0;
-    _buffersByChannel[1] = 0;
+    _streams[0] = 0;
+    _streams[1] = 0;
     useShort = true;
 
     streamActive = false;
@@ -294,10 +292,8 @@ SoapySDRPlay::~SoapySDRPlay(void)
         isSdrplayApiOpen = false;
     }
 
-    _buffersByTuner[0] = 0;
-    _buffersByTuner[1] = 0;
-    _buffersByChannel[0] = 0;
-    _buffersByChannel[1] = 0;
+    _streams[0] = 0;
+    _streams[1] = 0;
 }
 
 /*******************************************************************
@@ -854,8 +850,8 @@ void SoapySDRPlay::setSampleRate(const int direction, const size_t channel, cons
        }
        if (reasonForUpdate != sdrplay_api_Update_None)
        {
-          if (_buffersByTuner[0]) { _buffersByTuner[0]->reset = true; }
-          if (_buffersByTuner[1]) { _buffersByTuner[1]->reset = true; }
+          if (_streams[0]) { _streams[0]->reset = true; }
+          if (_streams[1]) { _streams[1]->reset = true; }
           if (streamActive)
           {
              // beware that when the fs change crosses the boundary between
