@@ -118,8 +118,6 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq, unsigned int numSamples,
     }
     else
     {
-// fv
-SoapySDR_logf(SOAPY_SDR_INFO, "rx_callaback() - stream=%p numSamples=%d", stream, numSamples);
        float *dptr = (float *)buff.data();
        dptr += ((buff.size() - spaceReqd) / shortsPerWord);
        for (i = 0; i < numSamples; i++)
@@ -362,6 +360,7 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
     SoapySDRPlayStream *sdrplay_stream = reinterpret_cast<SoapySDRPlayStream *>(stream);
     if (_streams[sdrplay_stream->channel] == 0)
     {
+        throw std::runtime_error("readStream stream not activated");
         return 0;
     }
 
