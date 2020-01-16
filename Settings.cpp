@@ -227,7 +227,7 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
     if (deviceParams->devParams) {
         deviceParams->devParams->ppm = 0.0;
     }
-    chParams->tunerParams.ifType = getIfEnumForRate((double)sampleRate);
+    chParams->tunerParams.ifType = getIfEnum();
     chParams->tunerParams.bwType = getBwEnumForRate((double)sampleRate);
     chParams->tunerParams.gain.gRdB = 40;
     chParams->tunerParams.gain.LNAstate = (device.hwVer == SDRPLAY_RSP2_ID ||
@@ -734,12 +734,19 @@ void SoapySDRPlay::setFrequency(const int direction,
 
    if (direction == SOAPY_SDR_RX)
    {
-      if ((name == "RF") && (chParams->tunerParams.rfFreq.rfHz != (uint32_t)frequency))
+      if (name == "RF")
       {
-         chParams->tunerParams.rfFreq.rfHz = (uint32_t)frequency;
-         if (streamActive)
+         sdrplay_api_RxChannelParamsT *chp = chParams;
+         if (channel == 1) {
+            chp = deviceParams->rxChannelB;
+         }
+         if (chp->tunerParams.rfFreq.rfHz != (uint32_t)frequency)
          {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Tuner_Frf, sdrplay_api_Update_Ext1_None);
+            chp->tunerParams.rfFreq.rfHz = (uint32_t)frequency;
+            if (streamActive)
+            {
+               sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Tuner_Frf, sdrplay_api_Update_Ext1_None);
+            }
          }
       }
       // can't set ppm for RSPduo slaves
@@ -761,7 +768,11 @@ double SoapySDRPlay::getFrequency(const int direction, const size_t channel, con
 
     if (name == "RF")
     {
-        return (double)chParams->tunerParams.rfFreq.rfHz;
+        sdrplay_api_RxChannelParamsT *chp = chParams;
+        if (channel == 1) {
+            chp = deviceParams->rxChannelB;
+        }
+        return (double)chp->tunerParams.rfFreq.rfHz;
     }
     else if (name == "CORR")
     {
@@ -815,14 +826,14 @@ void SoapySDRPlay::setSampleRate(const int direction, const size_t channel, cons
 
     if (direction == SOAPY_SDR_RX)
     {
-       // choose the IF type based on the sample rate
-       chParams->tunerParams.ifType = getIfEnumForRate(rate);
+       // choose the IF type
+       chParams->tunerParams.ifType = getIfEnum();
 
        sampleRate = (uint32_t)rate;
 
        unsigned int decM;
        unsigned int decEnable;
-       uint32_t actualSampleRate = getInputSampleRateAndDecimation(sampleRate, &decM, &decEnable, chParams->tunerParams.ifType, device.rspDuoSampleFreq);
+       uint32_t actualSampleRate = getInputSampleRateAndDecimation(sampleRate, &decM, &decEnable, chParams->tunerParams.ifType);
        sdrplay_api_Bw_MHzT bwType = getBwEnumForRate(rate);
 
        sdrplay_api_ReasonForUpdateT reasonForUpdate = sdrplay_api_Update_None;
@@ -885,9 +896,6 @@ std::vector<double> SoapySDRPlay::listSampleRates(const int direction, const siz
             return rates;
         }
     }
-    rates.push_back(250000);
-    rates.push_back(500000);
-    rates.push_back(1000000);
     rates.push_back(2000000);
     rates.push_back(2048000);
     rates.push_back(3000000);
@@ -902,41 +910,34 @@ std::vector<double> SoapySDRPlay::listSampleRates(const int direction, const siz
     return rates;
 }
 
-uint32_t SoapySDRPlay::getInputSampleRateAndDecimation(uint32_t rate, unsigned int *decM, unsigned int *decEnable, sdrplay_api_If_kHzT ifType, double rspDuoSampleFreq)
+uint32_t SoapySDRPlay::getInputSampleRateAndDecimation(uint32_t rate, unsigned int *decM, unsigned int *decEnable, sdrplay_api_If_kHzT ifType)
 {
-    if (ifType == sdrplay_api_IF_2_048 && rspDuoSampleFreq == 0)
+    if (ifType == sdrplay_api_IF_1_620 || ifType == sdrplay_api_IF_2_048)
     {
-        if      (rate == 2048000) { *decM = 4; *decEnable = 1; return 8192000; }
-    }
-    else if (ifType == sdrplay_api_IF_0_450)
-    {
-        if      (rate == 1000000) { *decM = 2; *decEnable = 1; return 2000000; }
-        else if (rate ==  500000) { *decM = 4; *decEnable = 1; return 2000000; }
+        if      (rate ==   62500) { *decM = 32; *decEnable = 1; }
+        else if (rate ==  125000) { *decM = 16; *decEnable = 1; }
+        else if (rate ==  250000) { *decM =  8; *decEnable = 1; }
+        else if (rate ==  500000) { *decM =  4; *decEnable = 1; }
+        else if (rate == 1000000) { *decM =  2; *decEnable = 1; }
+        else                      { *decM =  1; *decEnable = 0; }
+        if (ifType == sdrplay_api_IF_1_620) {
+            return 6000000;
+        } else {
+            return 8000000;
+        }
     }
     else if (ifType == sdrplay_api_IF_Zero)
     {
-        if      ((rate >=  125000) && (rate <  250000)) { *decM = 16; *decEnable = 1; return rate * 16; }
-        else if ((rate >=  250000) && (rate <  500000)) { *decM =  8; *decEnable = 1; return rate *  8; }
-        else if ((rate >=  500000) && (rate < 1000000)) { *decM =  4; *decEnable = 1; return rate *  4; }
-        else if ((rate >= 1000000) && (rate < 2000000)) { *decM =  2; *decEnable = 1; return rate *  2; }
-        else                                            { *decM =  1; *decEnable = 0; return rate; }
+        // rate should be > 2 MHz so just return rate
+        *decM=1; *decEnable=0;
+        return rate;
     }
-    else if (rspDuoSampleFreq != 0)    // RSPduo case
-    {
-        uint32_t actualRate = (uint32_t)rspDuoSampleFreq;
-        if      ((rate >=   62500) && (rate <  125000)) { *decM = 32; *decEnable = 1; return actualRate; }
-        else if ((rate >=  125000) && (rate <  250000)) { *decM = 16; *decEnable = 1; return actualRate; }
-        else if ((rate >=  250000) && (rate <  500000)) { *decM =  8; *decEnable = 1; return actualRate; }
-        else if ((rate >=  500000) && (rate < 1000000)) { *decM =  4; *decEnable = 1; return actualRate; }
-        else if ((rate >= 1000000) && (rate < 2000000)) { *decM =  2; *decEnable = 1; return actualRate; }
-        else                                            { *decM =  1; *decEnable = 0; return actualRate; }
-   }
 
-   // this is invalid, but return something
-   *decM = 1; *decEnable = 0; return rate;
+    // this is invalid, but return something
+    *decM = 1; *decEnable = 0; return rate;
 }
 
-sdrplay_api_If_kHzT SoapySDRPlay::getIfEnumForRate(const double rate) const
+sdrplay_api_If_kHzT SoapySDRPlay::getIfEnum() const
 {
     // RSPduo in dual tuner/master/slave mode
     if (device.hwVer == SDRPLAY_RSPduo_ID &&
@@ -1019,14 +1020,14 @@ SoapySDR::RangeList SoapySDRPlay::getBandwidthRange(const int direction, const s
 
 sdrplay_api_Bw_MHzT SoapySDRPlay::getBwEnumForRate(double rate)
 {
-   if                            (rate < 300000)   return sdrplay_api_BW_0_200;
-   else if ((rate >= 300000)  && (rate < 600000))  return sdrplay_api_BW_0_300;
-   else if ((rate >= 600000)  && (rate < 1536000)) return sdrplay_api_BW_0_600;
-   else if ((rate >= 1536000) && (rate < 5000000)) return sdrplay_api_BW_1_536;
-   else if ((rate >= 5000000) && (rate < 6000000)) return sdrplay_api_BW_5_000;
-   else if ((rate >= 6000000) && (rate < 7000000)) return sdrplay_api_BW_6_000;
-   else if ((rate >= 7000000) && (rate < 8000000)) return sdrplay_api_BW_7_000;
-   else                                            return sdrplay_api_BW_8_000;
+   if      (rate <  300000) return sdrplay_api_BW_0_200;
+   else if (rate <  600000) return sdrplay_api_BW_0_300;
+   else if (rate < 1536000) return sdrplay_api_BW_0_600;
+   else if (rate < 5000000) return sdrplay_api_BW_1_536;
+   else if (rate < 6000000) return sdrplay_api_BW_5_000;
+   else if (rate < 7000000) return sdrplay_api_BW_6_000;
+   else if (rate < 8000000) return sdrplay_api_BW_7_000;
+   else                     return sdrplay_api_BW_8_000;
 }
 
 

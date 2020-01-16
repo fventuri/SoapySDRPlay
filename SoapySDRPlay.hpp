@@ -236,9 +236,9 @@ private:
      * Internal functions
      ******************************************************************/
 
-    static uint32_t getInputSampleRateAndDecimation(uint32_t rate, unsigned int *decM, unsigned int *decEnable, sdrplay_api_If_kHzT ifType, double rspDuoSampleFreq);
+    static uint32_t getInputSampleRateAndDecimation(uint32_t rate, unsigned int *decM, unsigned int *decEnable, sdrplay_api_If_kHzT ifType);
 
-    sdrplay_api_If_kHzT getIfEnumForRate(const double rate) const;
+    sdrplay_api_If_kHzT getIfEnum() const;
 
     static sdrplay_api_Bw_MHzT getBwEnumForRate(double rate);
 
