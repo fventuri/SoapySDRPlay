@@ -236,11 +236,9 @@ private:
      * Internal functions
      ******************************************************************/
 
-    static uint32_t getInputSampleRateAndDecimation(uint32_t rate, unsigned int *decM, unsigned int *decEnable, sdrplay_api_If_kHzT ifType);
+    double getInputSampleRateAndDecimation(uint32_t output_sample_rate, unsigned int *decM, unsigned int *decEnable, sdrplay_api_If_kHzT *ifType) const;
 
-    sdrplay_api_If_kHzT getIfEnum() const;
-
-    static sdrplay_api_Bw_MHzT getBwEnumForRate(double rate);
+    static sdrplay_api_Bw_MHzT getBwEnumForRate(double output_sample_rate);
 
     static  double getBwValueFromEnum(sdrplay_api_Bw_MHzT bwEnum);
 
@@ -259,7 +257,7 @@ private:
     std::string hardwareKey;
 
     //cached settings
-    uint32_t sampleRate;
+    double outputSampleRate;
     std::atomic_ulong bufferLength;
 
     //numBuffers, bufferElems, elementsPerSample
@@ -307,5 +305,5 @@ public:
     SoapySDRPlayStream *_streams[2];
 
     constexpr static double defaultRspDuoSampleFreq = 6000000;
-    constexpr static uint32_t defaultRspDuoOutputSampleRate = 2000000;
+    constexpr static double defaultRspDuoOutputSampleRate = 2000000;
 };
