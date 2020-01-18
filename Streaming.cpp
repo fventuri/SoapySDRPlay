@@ -158,6 +158,16 @@ void SoapySDRPlay::ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSele
             // OVERLOAD CORRECTED
         }
     }
+    else if (eventId == sdrplay_api_RspDuoModeChange)
+    {
+        if (params->rspDuoModeParams.modeChangeType == sdrplay_api_MasterDllDisappeared)
+        {
+            // Display error saying that the master stream has been removed
+            // before the slave stream and force the slave application to close
+            SoapySDR_log(SOAPY_SDR_ERROR, "*** master stream has been removed. Aborting.");
+            throw std::runtime_error("*** master stream has been removed. Aborting.");
+        }
+    }
 }
 
 /*******************************************************************
