@@ -50,6 +50,7 @@ SOAPY_SDR_MODULE_UTIL(
     SOURCES
         SoapySDRPlay.hpp
         Registration.cpp
+        sdrplay_api.cpp
         Settings.cpp
         Streaming.cpp
     LIBRARIES

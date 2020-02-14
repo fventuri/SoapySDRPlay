@@ -306,4 +306,23 @@ public:
 
     constexpr static double defaultRspDuoSampleFreq = 6000000;
     constexpr static double defaultRspDuoOutputSampleRate = 2000000;
+
+    // Singleton class for SDRplay API (only one per process)
+    class sdrplay_api
+    {
+    public:
+        static sdrplay_api& get_instance()
+        {
+            static sdrplay_api instance;
+            return instance;
+        }
+
+    private:
+        sdrplay_api();
+
+    public:
+        ~sdrplay_api();
+        sdrplay_api(sdrplay_api const&)    = delete;
+        void operator=(sdrplay_api const&) = delete;
+    };
 };

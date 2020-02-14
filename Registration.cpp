@@ -31,24 +31,8 @@
 #define sprintf_s(buffer, buffer_size, stringbuffer, ...) (sprintf(buffer, stringbuffer, __VA_ARGS__))
 #endif
 
-static bool isAtExitRegistered = false;
 static sdrplay_api_DeviceT rspDevs[SDRPLAY_MAX_DEVICES];
-bool isSdrplayApiOpen = false;
 sdrplay_api_DeviceT *deviceSelected = nullptr;
-
-static void close_sdrplay_api(void)
-{
-   if (deviceSelected)
-   {
-      sdrplay_api_ReleaseDevice(deviceSelected);
-      deviceSelected = nullptr;
-   }
-   if (isSdrplayApiOpen == true)
-   {
-      sdrplay_api_Close();
-      isSdrplayApiOpen = false;
-   }
-}
 
 static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
 {
@@ -81,21 +65,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
    unsigned int nDevs = 0;
    char lblstr[128];
 
-   if (isAtExitRegistered == false)
-   {
-       atexit(close_sdrplay_api);
-       isAtExitRegistered = true;
-   }
-
-   if (isSdrplayApiOpen == false)
-   {
-      sdrplay_api_ErrT err;
-      if ((err = sdrplay_api_Open()) != sdrplay_api_Success)
-      {
-          return results;
-      }
-      isSdrplayApiOpen = true;
-   }
+   SoapySDRPlay::sdrplay_api::get_instance();
 
    if (deviceSelected)
    {
@@ -167,6 +137,10 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
                             mode.rspDuoMode == sdrplay_api_RspDuoMode_Master && mode.isMasterAt8Mhz ? " (RSPduo sample rate=8Mhz)" : "");
                   dev["label"] = lblstr;
                   dev["rspduo_mode"] = std::to_string(mode.rspDuoMode);
+                  if (mode.isMasterAt8Mhz)
+                  {
+                     dev["rspduo_sample_freq"] = "8";
+                  }
                   results.push_back(dev);
                }
                ++devIdx;
@@ -176,13 +150,8 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
       }
    }
 
-   // unlock sdrplay API and close it in case some other driver needs it
    sdrplay_api_UnlockDeviceApi();
-   if (isSdrplayApiOpen == true)
-   {
-      sdrplay_api_Close();
-      isSdrplayApiOpen = false;
-   }
+
    return results;
 }
 

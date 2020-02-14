@@ -297,11 +297,6 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
     sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Disable);
     //sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Verbose);
 
-    // temporary fix for ARM targets.
-#if defined(__arm__) || defined(__aarch64__)
-    sdrplay_api_SetTransferMode(sdrplay_api_BULK);
-#endif
-
     chParams->tunerParams.dcOffsetTuner.dcCal = 4;
     chParams->tunerParams.dcOffsetTuner.speedUp = 0;
     chParams->tunerParams.dcOffsetTuner.trackTime = 63;

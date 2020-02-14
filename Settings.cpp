@@ -27,7 +27,6 @@
 #include "SoapySDRPlay.hpp"
 
 // globals declared in Registration.cpp
-extern bool isSdrplayApiOpen;
 extern sdrplay_api_DeviceT *deviceSelected;
 
 static sdrplay_api_DeviceT rspDevs[SDRPLAY_MAX_DEVICES];
@@ -59,30 +58,9 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
     // retrieve hwVer and serNo by API
     unsigned int nDevs = 0;
 
-    sdrplay_api_ErrT err;
-
-    if (isSdrplayApiOpen == false) {
-        sdrplay_api_ErrT err;
-        if ((err = sdrplay_api_Open()) != sdrplay_api_Success) {
-            return;
-        }
-        isSdrplayApiOpen = true;
-    }
-
-    err = sdrplay_api_ApiVersion(&ver);
-    if (err != sdrplay_api_Success)
-    {
-        sdrplay_api_UnlockDeviceApi();
-        SoapySDR_logf(SOAPY_SDR_ERROR, "ApiVersion Error: %s", sdrplay_api_GetErrorString(err));
-        throw std::runtime_error("ApiVersion() failed");
-    }
-    if (ver != SDRPLAY_API_VERSION)
-    {
-        SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api version: '%.3f' does not equal build version: '%.3f'", ver, SDRPLAY_API_VERSION);
-    }
-
     bool deviceFound = false;
 
+    sdrplay_api_LockDeviceApi();
     sdrplay_api_GetDevices(&rspDevs[0], &nDevs, SDRPLAY_MAX_DEVICES);
     unsigned int idx = 0;
     for (unsigned int i = 0; i < nDevs; ++i)
@@ -190,6 +168,7 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
         SoapySDR_logf(SOAPY_SDR_INFO, "rspDuoSampleFreq: %lf", device.rspDuoSampleFreq);
     }
 
+    sdrplay_api_ErrT err;
     err = sdrplay_api_SelectDevice(&device);
     if (err != sdrplay_api_Success)
     {
@@ -284,11 +263,6 @@ SoapySDRPlay::~SoapySDRPlay(void)
     streamActive = false;
     sdrplay_api_ReleaseDevice(&device);
     deviceSelected = nullptr;
-
-    if (isSdrplayApiOpen == true) {
-        sdrplay_api_Close();
-        isSdrplayApiOpen = false;
-    }
 
     _streams[0] = 0;
     _streams[1] = 0;
@@ -501,29 +475,31 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
         }
         else
         {
-            if (device.rspDuoMode == sdrplay_api_RspDuoMode_Single_Tuner)
+            if (streamActive)
             {
-                sdrplay_api_ErrT err;
-                err = sdrplay_api_SwapRspDuoActiveTuner(device.dev,
-                           &device.tuner, chParams->rspDuoTunerParams.tuner1AmPortSel);
-                if (err != sdrplay_api_Success)
+                if (device.rspDuoMode == sdrplay_api_RspDuoMode_Single_Tuner)
                 {
-                    SoapySDR_logf(SOAPY_SDR_WARNING, "SwapRspDuoActiveTuner Error: %s", sdrplay_api_GetErrorString(err));
+                    sdrplay_api_ErrT err;
+                    err = sdrplay_api_SwapRspDuoActiveTuner(device.dev,
+                               &device.tuner, chParams->rspDuoTunerParams.tuner1AmPortSel);
+                    if (err != sdrplay_api_Success)
+                    {
+                        SoapySDR_logf(SOAPY_SDR_WARNING, "SwapRspDuoActiveTuner Error: %s", sdrplay_api_GetErrorString(err));
+                    }
                 }
-                chParams = device.tuner == sdrplay_api_Tuner_B ?
-                           deviceParams->rxChannelB : deviceParams->rxChannelA;
-            }
-            else if (device.rspDuoMode == sdrplay_api_RspDuoMode_Master)
-            {
-                // not sure what is the best way to handle this case - fv
-                if (streamActive)
+                else if (device.rspDuoMode == sdrplay_api_RspDuoMode_Master)
                 {
+                    // not sure what is the best way to handle this case - fv
                     SoapySDR_log(SOAPY_SDR_WARNING, "tuner change not allowed in RSPduo Master mode while the device is streaming");
-                } else {
-                    sdrplay_api_TunerSelectT new_tuner = device.tuner == sdrplay_api_Tuner_A ? sdrplay_api_Tuner_B : sdrplay_api_Tuner_A;
-                    reselectDevice(new_tuner);
                 }
             }
+            else
+            {
+                sdrplay_api_TunerSelectT new_tuner = device.tuner == sdrplay_api_Tuner_A ? sdrplay_api_Tuner_B : sdrplay_api_Tuner_A;
+                reselectDevice(new_tuner);
+            }
+            chParams = device.tuner == sdrplay_api_Tuner_B ?
+                       deviceParams->rxChannelB : deviceParams->rxChannelA;
         }
     }
 }
@@ -728,11 +704,6 @@ void SoapySDRPlay::setFrequency(const int direction,
                                  const SoapySDR::Kwargs &args)
 {
    std::lock_guard <std::mutex> lock(_general_state_mutex);
-
-   if (&device != deviceSelected)
-   {
-      reselectDevice();
-   }
 
    if (direction == SOAPY_SDR_RX)
    {
@@ -1573,13 +1544,6 @@ std::string SoapySDRPlay::readSetting(const std::string &key) const
 {
     std::lock_guard <std::mutex> lock(_general_state_mutex);
 
-    if (&device != deviceSelected)
-    {
-       // we need to cast away the constness of this, since reselectDevice()
-       // has to make changes to the members
-       const_cast<SoapySDRPlay*>(this)->reselectDevice();
-    }
-
 #ifdef RF_GAIN_IN_MENU
     if (key == "rfgain_sel")
     {
@@ -1665,15 +1629,6 @@ std::string SoapySDRPlay::readSetting(const std::string &key) const
 
 void SoapySDRPlay::reselectDevice(sdrplay_api_TunerSelectT new_tuner)
 {
-    if (isSdrplayApiOpen == false)
-    {
-        sdrplay_api_ErrT err;
-        if ((err = sdrplay_api_Open()) != sdrplay_api_Success) {
-            return;
-        }
-        isSdrplayApiOpen = true;
-    }
-
     if (streamActive)
     {
         sdrplay_api_Uninit(device.dev);
