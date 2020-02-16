@@ -244,7 +244,9 @@ private:
 
     static sdrplay_api_Bw_MHzT sdrPlayGetBwMhzEnum(double bw);
 
-    void reselectDevice(sdrplay_api_TunerSelectT new_tuner=sdrplay_api_Tuner_Neither);
+    void releaseDevice();
+
+    void selectDevice();
 
     /*******************************************************************
      * Private variables

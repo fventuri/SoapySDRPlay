@@ -26,6 +26,10 @@
 
 #include "SoapySDRPlay.hpp"
 
+// globals declared in Registration.cpp
+extern SoapySDR::Stream *activeStream;
+extern SoapySDRPlay *activeSoapySDRPlay;
+
 std::vector<std::string> SoapySDRPlay::getStreamFormats(const int direction, const size_t channel) const
 {
     std::vector<std::string> formats;
@@ -164,8 +168,8 @@ void SoapySDRPlay::ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSele
         {
             // Display error saying that the master stream has been removed
             // before the slave stream and force the slave application to close
-            SoapySDR_log(SOAPY_SDR_ERROR, "*** master stream has been removed. Aborting.");
-            throw std::runtime_error("*** master stream has been removed. Aborting.");
+            SoapySDR_log(SOAPY_SDR_ERROR, "master stream has been removed. Aborting.");
+            throw std::runtime_error("master stream has been removed. Aborting.");
         }
     }
 }
@@ -257,6 +261,8 @@ void SoapySDRPlay::closeStream(SoapySDR::Stream *stream)
     {
         sdrplay_api_Uninit(device.dev);
         streamActive = false;
+        activeStream = nullptr;
+        activeSoapySDRPlay = nullptr;
     }
 }
 
@@ -273,7 +279,7 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
 {
     if (flags != 0)
     {
-        throw std::runtime_error("*** error in activateStream() - flags != 0");
+        throw std::runtime_error("error in activateStream() - flags != 0");
         return SOAPY_SDR_NOT_SUPPORTED;
     }
 
@@ -309,12 +315,14 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
     err = sdrplay_api_Init(device.dev, &cbFns, (void *)this);
     if (err != sdrplay_api_Success)
     {
-        SoapySDR_logf(SOAPY_SDR_ERROR, "*** error in activateStream() - Init() failed: %s", sdrplay_api_GetErrorString(err));
-        throw std::runtime_error("*** error in activateStream() - Init() failed");
+        SoapySDR_logf(SOAPY_SDR_ERROR, "error in activateStream() - Init() failed: %s", sdrplay_api_GetErrorString(err));
+        throw std::runtime_error("error in activateStream() - Init() failed");
         return SOAPY_SDR_NOT_SUPPORTED;
     }
 
     streamActive = true;
+    activeStream = stream;
+    activeSoapySDRPlay = this;
 
     return 0;
 }
@@ -345,6 +353,10 @@ int SoapySDRPlay::deactivateStream(SoapySDR::Stream *stream, const int flags, co
     {
         sdrplay_api_Uninit(device.dev);
         streamActive = false;
+        activeStream = nullptr;
+        activeSoapySDRPlay = nullptr;
+        // notify readStream()
+        sdrplay_stream->cond.notify_one();
     }
 
     return 0;
@@ -376,6 +388,8 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
 
         if (ret < 0)
         {
+            SoapySDR_logf(SOAPY_SDR_ERROR, "readStream() failed: %s", SoapySDR_errToStr(ret));
+            throw std::runtime_error("readStream() failed");
             return ret;
         }
         sdrplay_stream->nElems = ret;

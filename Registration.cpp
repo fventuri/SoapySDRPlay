@@ -33,6 +33,8 @@
 
 static sdrplay_api_DeviceT rspDevs[SDRPLAY_MAX_DEVICES];
 sdrplay_api_DeviceT *deviceSelected = nullptr;
+SoapySDR::Stream *activeStream = nullptr;
+SoapySDRPlay *activeSoapySDRPlay = nullptr;
 
 static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
 {
@@ -67,6 +69,14 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
 
    SoapySDRPlay::sdrplay_api::get_instance();
 
+   sdrplay_api_LockDeviceApi();
+
+   if (activeStream)
+   {
+      SoapySDR_log(SOAPY_SDR_WARNING, "findSDRPlay() called while the device is streaming. Deactivating stream.");
+      activeSoapySDRPlay->deactivateStream(activeStream, 0, 0LL);
+   }
+
    if (deviceSelected)
    {
       sdrplay_api_ReleaseDevice(deviceSelected);
@@ -76,7 +86,6 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
    std::string baseLabel = "SDRplay Dev";
 
    // list devices by API
-   sdrplay_api_LockDeviceApi();
    sdrplay_api_GetDevices(&rspDevs[0], &nDevs, SDRPLAY_MAX_DEVICES);
 
    size_t posidx = labelHint.find(baseLabel);

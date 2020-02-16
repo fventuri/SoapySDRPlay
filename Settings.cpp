@@ -168,30 +168,7 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
         SoapySDR_logf(SOAPY_SDR_INFO, "rspDuoSampleFreq: %lf", device.rspDuoSampleFreq);
     }
 
-    sdrplay_api_ErrT err;
-    err = sdrplay_api_SelectDevice(&device);
-    if (err != sdrplay_api_Success)
-    {
-        sdrplay_api_UnlockDeviceApi();
-        SoapySDR_logf(SOAPY_SDR_ERROR, "SelectDevice Error: %s", sdrplay_api_GetErrorString(err));
-        throw std::runtime_error("SelectDevice() failed");
-        return;
-    }
-    sdrplay_api_UnlockDeviceApi();
-    deviceSelected = &device;
-
-    // Enable (= sdrplay_api_DbgLvl_Verbose) API calls tracing,
-    // but only for debug purposes due to its performance impact.
-    sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Disable);
-    //sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Verbose);
-
-    err = sdrplay_api_GetDeviceParams(device.dev, &deviceParams);
-    if (err != sdrplay_api_Success)
-    {
-        SoapySDR_logf(SOAPY_SDR_ERROR, "GetDeviceParams Error: %s", sdrplay_api_GetErrorString(err));
-        throw std::runtime_error("GetDeviceParams() failed");
-    }
-    chParams = device.tuner == sdrplay_api_Tuner_B ? deviceParams->rxChannelB : deviceParams->rxChannelA;
+    selectDevice();
 
     // can't set input sample rate for RSPduo slaves
     if (deviceParams->devParams) {
@@ -256,13 +233,8 @@ SoapySDRPlay::~SoapySDRPlay(void)
 {
     std::lock_guard <std::mutex> lock(_general_state_mutex);
 
-    if (streamActive)
-    {
-        sdrplay_api_Uninit(device.dev);
-    }
-    streamActive = false;
-    sdrplay_api_ReleaseDevice(&device);
-    deviceSelected = nullptr;
+    releaseDevice();
+    sdrplay_api_UnlockDeviceApi();
 
     _streams[0] = 0;
     _streams[1] = 0;
@@ -486,6 +458,8 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
                     {
                         SoapySDR_logf(SOAPY_SDR_WARNING, "SwapRspDuoActiveTuner Error: %s", sdrplay_api_GetErrorString(err));
                     }
+                    chParams = device.tuner == sdrplay_api_Tuner_B ?
+                               deviceParams->rxChannelB : deviceParams->rxChannelA;
                 }
                 else if (device.rspDuoMode == sdrplay_api_RspDuoMode_Master)
                 {
@@ -495,11 +469,10 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
             }
             else
             {
-                sdrplay_api_TunerSelectT new_tuner = device.tuner == sdrplay_api_Tuner_A ? sdrplay_api_Tuner_B : sdrplay_api_Tuner_A;
-                reselectDevice(new_tuner);
+                releaseDevice();
+                device.tuner = device.tuner == sdrplay_api_Tuner_A ? sdrplay_api_Tuner_B : sdrplay_api_Tuner_A;
+                selectDevice();
             }
-            chParams = device.tuner == sdrplay_api_Tuner_B ?
-                       deviceParams->rxChannelB : deviceParams->rxChannelA;
         }
     }
 }
@@ -1627,7 +1600,7 @@ std::string SoapySDRPlay::readSetting(const std::string &key) const
     return "";
 }
 
-void SoapySDRPlay::reselectDevice(sdrplay_api_TunerSelectT new_tuner)
+void SoapySDRPlay::releaseDevice()
 {
     if (streamActive)
     {
@@ -1635,12 +1608,12 @@ void SoapySDRPlay::reselectDevice(sdrplay_api_TunerSelectT new_tuner)
     }
     streamActive = false;
 
-    sdrplay_api_ErrT err;
-
     sdrplay_api_LockDeviceApi();
 
     if (deviceSelected)
     {
+        sdrplay_api_ErrT err;
+
         err = sdrplay_api_ReleaseDevice(deviceSelected);
         if (err != sdrplay_api_Success)
         {
@@ -1651,11 +1624,12 @@ void SoapySDRPlay::reselectDevice(sdrplay_api_TunerSelectT new_tuner)
         }
         deviceSelected = nullptr;
     }
+    return;
+}
 
-    if (new_tuner != sdrplay_api_Tuner_Neither)
-    {
-        device.tuner = new_tuner;
-    }
+void SoapySDRPlay::selectDevice()
+{
+    sdrplay_api_ErrT err;
 
     err = sdrplay_api_SelectDevice(&device);
     if (err != sdrplay_api_Success)
@@ -1669,6 +1643,11 @@ void SoapySDRPlay::reselectDevice(sdrplay_api_TunerSelectT new_tuner)
     sdrplay_api_UnlockDeviceApi();
 
     deviceSelected = &device;
+
+    // Enable (= sdrplay_api_DbgLvl_Verbose) API calls tracing,
+    // but only for debug purposes due to its performance impact.
+    sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Disable);
+    //sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Verbose);
 
     err = sdrplay_api_GetDeviceParams(device.dev, &deviceParams);
     if (err != sdrplay_api_Success)
