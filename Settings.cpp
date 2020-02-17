@@ -28,6 +28,8 @@
 
 // globals declared in Registration.cpp
 extern sdrplay_api_DeviceT *deviceSelected;
+extern SoapySDR::Stream *activeStream;
+extern SoapySDRPlay *activeSoapySDRPlay;
 
 static sdrplay_api_DeviceT rspDevs[SDRPLAY_MAX_DEVICES];
 
@@ -1079,6 +1081,15 @@ SoapySDR::ArgInfoList SoapySDRPlay::getSettingInfo(void) const
 {
     SoapySDR::ArgInfoList setArgs;
 
+    if (deviceSelected != &device)
+    {
+        // we need to cast away the constness of this, since releaseDevice()
+        // and selectDevice() make changes to its members
+        SoapySDRPlay *non_const_this = const_cast<SoapySDRPlay*>(this);
+        non_const_this->releaseDevice();
+        non_const_this->selectDevice();
+    }
+
 #ifdef RF_GAIN_IN_MENU
     if (device.hwVer == SDRPLAY_RSP2_ID)
     {
@@ -1602,16 +1613,18 @@ std::string SoapySDRPlay::readSetting(const std::string &key) const
 
 void SoapySDRPlay::releaseDevice()
 {
-    if (streamActive)
-    {
-        sdrplay_api_Uninit(device.dev);
-    }
-    streamActive = false;
-
-    sdrplay_api_LockDeviceApi();
-
     if (deviceSelected)
     {
+        if (streamActive)
+        {
+            sdrplay_api_Uninit(deviceSelected->dev);
+        }
+        streamActive = false;
+        activeStream = nullptr;
+        activeSoapySDRPlay = nullptr;
+
+        sdrplay_api_LockDeviceApi();
+
         sdrplay_api_ErrT err;
 
         err = sdrplay_api_ReleaseDevice(deviceSelected);
