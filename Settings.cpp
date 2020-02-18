@@ -768,6 +768,16 @@ void SoapySDRPlay::setSampleRate(const int direction, const size_t channel, cons
 
     if (direction == SOAPY_SDR_RX)
     {
+       // check output sample rate for the RSPduo case
+       if (output_sample_rate > 2000000 && device.hwVer == SDRPLAY_RSPduo_ID &&
+           (device.rspDuoMode == sdrplay_api_RspDuoMode_Dual_Tuner ||
+            device.rspDuoMode == sdrplay_api_RspDuoMode_Master ||
+            device.rspDuoMode == sdrplay_api_RspDuoMode_Slave)) {
+          SoapySDR_logf(SOAPY_SDR_WARNING, "invalid sample rate for RSPduo in master or slave mode. Using 2MHz instead.");
+          // cast away the constness of output_sample_rate to force its value
+          *(const_cast<double*>(&output_sample_rate)) = 2000000;
+       }
+
        outputSampleRate = output_sample_rate;
 
        unsigned int decM;
