@@ -25,6 +25,8 @@
  */
 
 #include "SoapySDRPlay.hpp"
+#include <thread>
+#include <chrono>
 
 // globals declared in Registration.cpp
 extern SoapySDR::Stream *activeStream;
@@ -370,10 +372,15 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
                              long long &timeNs,
                              const long timeoutUs)
 {
+    // the API requests us to wait until either the
+    // timeout is reached or the stream is activated
     if (!streamActive)
     {
-        // TODO: wait timeoutUS and try again
-        return SOAPY_SDR_TIMEOUT;
+        using us = std::chrono::microseconds;
+        std::this_thread::sleep_for(us(timeoutUs));
+        if(!streamActive){
+            return SOAPY_SDR_TIMEOUT;
+        }
     }
 
     SoapySDRPlayStream *sdrplay_stream = reinterpret_cast<SoapySDRPlayStream *>(stream);
