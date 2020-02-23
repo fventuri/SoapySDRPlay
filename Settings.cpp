@@ -1643,7 +1643,6 @@ void SoapySDRPlay::releaseDevice()
             sdrplay_api_UnlockDeviceApi();
             SoapySDR_logf(SOAPY_SDR_ERROR, "ReleaseDevice Error: %s", sdrplay_api_GetErrorString(err));
             throw std::runtime_error("ReleaseDevice() failed");
-            return;
         }
         deviceSelected = nullptr;
     }
@@ -1660,7 +1659,6 @@ void SoapySDRPlay::selectDevice()
         sdrplay_api_UnlockDeviceApi();
         SoapySDR_logf(SOAPY_SDR_ERROR, "SelectDevice Error: %s", sdrplay_api_GetErrorString(err));
         throw std::runtime_error("SelectDevice() failed");
-        return;
     }
 
     sdrplay_api_UnlockDeviceApi();

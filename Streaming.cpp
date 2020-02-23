@@ -404,7 +404,7 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
     }
     else
     {
-        std::memcpy(buffs[0], (float*)((void*)sdrplay_stream->currentBuff), returnedElems * 2 * sizeof(float));
+        std::memcpy(buffs[0], (float *)(void*)sdrplay_stream->currentBuff, returnedElems * 2 * sizeof(float));
     }
 
     // bump variables for next call into readStream

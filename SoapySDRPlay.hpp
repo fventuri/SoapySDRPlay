@@ -46,7 +46,7 @@
 class SoapySDRPlay: public SoapySDR::Device
 {
 public:
-    SoapySDRPlay(const SoapySDR::Kwargs &args);
+    explicit SoapySDRPlay(const SoapySDR::Kwargs &args);
 
     ~SoapySDRPlay(void);
 
