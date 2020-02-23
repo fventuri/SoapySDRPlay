@@ -756,7 +756,7 @@ SoapySDR::ArgInfoList SoapySDRPlay::getFrequencyArgsInfo(const int direction, co
  ******************************************************************/
 
 /* input_sample_rate:  sample rate used by the SDR
- * output_sample_rate: sample rate the as seen by the client app
+ * output_sample_rate: sample rate as seen by the client app
  *                     (<= input_sample_rate because of decimation)
  */
 

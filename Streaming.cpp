@@ -279,7 +279,7 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
 {
     if (flags != 0)
     {
-        throw std::runtime_error("error in activateStream() - flags != 0");
+        SoapySDR_log(SOAPY_SDR_ERROR, "error in activateStream() - flags != 0");
         return SOAPY_SDR_NOT_SUPPORTED;
     }
 
@@ -316,7 +316,6 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
     if (err != sdrplay_api_Success)
     {
         SoapySDR_logf(SOAPY_SDR_ERROR, "error in activateStream() - Init() failed: %s", sdrplay_api_GetErrorString(err));
-        throw std::runtime_error("error in activateStream() - Init() failed");
         return SOAPY_SDR_NOT_SUPPORTED;
     }
 
@@ -377,8 +376,8 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
     SoapySDRPlayStream *sdrplay_stream = reinterpret_cast<SoapySDRPlayStream *>(stream);
     if (_streams[sdrplay_stream->channel] == 0)
     {
-        throw std::runtime_error("readStream stream not activated");
-        return 0;
+        //throw std::runtime_error("readStream stream not activated");
+        return SOAPY_SDR_STREAM_ERROR;
     }
 
     // are elements left in the buffer? if not, do a new read.
@@ -388,8 +387,8 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
 
         if (ret < 0)
         {
-            SoapySDR_logf(SOAPY_SDR_ERROR, "readStream() failed: %s", SoapySDR_errToStr(ret));
-            throw std::runtime_error("readStream() failed");
+            // Do not generate logs here, as interleaving with stream indicators
+            //SoapySDR_logf(SOAPY_SDR_WARNING, "readStream() failed: %s", SoapySDR_errToStr(ret));
             return ret;
         }
         sdrplay_stream->nElems = ret;
@@ -405,7 +404,7 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
     }
     else
     {
-        std::memcpy(buffs[0], (float *)sdrplay_stream->currentBuff, returnedElems * 2 * sizeof(float));
+        std::memcpy(buffs[0], (float*)((void*)sdrplay_stream->currentBuff), returnedElems * 2 * sizeof(float));
     }
 
     // bump variables for next call into readStream
