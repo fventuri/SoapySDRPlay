@@ -46,7 +46,7 @@
 class SoapySDRPlay: public SoapySDR::Device
 {
 public:
-    SoapySDRPlay(const SoapySDR::Kwargs &args);
+    explicit SoapySDRPlay(const SoapySDR::Kwargs &args);
 
     ~SoapySDRPlay(void);
 
@@ -296,6 +296,7 @@ public:
         std::vector<std::vector<short> > buffs;
         size_t      head;
         size_t      tail;
+        /// number of in-flight buffers
         size_t      count;
         short *currentBuff;
         bool overflowEvent;

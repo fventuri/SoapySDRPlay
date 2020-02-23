@@ -25,6 +25,8 @@
  */
 
 #include "SoapySDRPlay.hpp"
+#include <thread>
+#include <chrono>
 
 // globals declared in Registration.cpp
 extern SoapySDR::Stream *activeStream;
@@ -105,6 +107,9 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq, unsigned int numSamples,
 
     // get current fill buffer
     auto &buff = stream->buffs[stream->tail];
+
+    // we do not reallocate here, as we only resize within
+    // the buffers capacity
     buff.resize(buff.size() + spaceReqd);
 
     // copy into the buffer queue
@@ -194,7 +199,6 @@ SoapySDRPlay::SoapySDRPlayStream::SoapySDRPlayStream(size_t channel,
     // allocate buffers
     buffs.resize(numBuffers);
     for (auto &buff : buffs) buff.reserve(bufferLength);
-    for (auto &buff : buffs) buff.clear();
 }
 
 SoapySDRPlay::SoapySDRPlayStream::~SoapySDRPlayStream()
@@ -279,7 +283,7 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
 {
     if (flags != 0)
     {
-        throw std::runtime_error("error in activateStream() - flags != 0");
+        SoapySDR_log(SOAPY_SDR_ERROR, "error in activateStream() - flags != 0");
         return SOAPY_SDR_NOT_SUPPORTED;
     }
 
@@ -316,7 +320,6 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
     if (err != sdrplay_api_Success)
     {
         SoapySDR_logf(SOAPY_SDR_ERROR, "error in activateStream() - Init() failed: %s", sdrplay_api_GetErrorString(err));
-        throw std::runtime_error("error in activateStream() - Init() failed");
         return SOAPY_SDR_NOT_SUPPORTED;
     }
 
@@ -369,16 +372,22 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
                              long long &timeNs,
                              const long timeoutUs)
 {
+    // the API requests us to wait until either the
+    // timeout is reached or the stream is activated
     if (!streamActive)
     {
-        return 0;
+        using us = std::chrono::microseconds;
+        std::this_thread::sleep_for(us(timeoutUs));
+        if(!streamActive){
+            return SOAPY_SDR_TIMEOUT;
+        }
     }
 
     SoapySDRPlayStream *sdrplay_stream = reinterpret_cast<SoapySDRPlayStream *>(stream);
     if (_streams[sdrplay_stream->channel] == 0)
     {
-        throw std::runtime_error("readStream stream not activated");
-        return 0;
+        //throw std::runtime_error("readStream stream not activated");
+        return SOAPY_SDR_STREAM_ERROR;
     }
 
     // are elements left in the buffer? if not, do a new read.
@@ -388,8 +397,8 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
 
         if (ret < 0)
         {
-            SoapySDR_logf(SOAPY_SDR_ERROR, "readStream() failed: %s", SoapySDR_errToStr(ret));
-            throw std::runtime_error("readStream() failed");
+            // Do not generate logs here, as interleaving with stream indicators
+            //SoapySDR_logf(SOAPY_SDR_WARNING, "readStream() failed: %s", SoapySDR_errToStr(ret));
             return ret;
         }
         sdrplay_stream->nElems = ret;
@@ -405,7 +414,7 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
     }
     else
     {
-        std::memcpy(buffs[0], (float *)sdrplay_stream->currentBuff, returnedElems * 2 * sizeof(float));
+        std::memcpy(buffs[0], (float *)(void*)sdrplay_stream->currentBuff, returnedElems * 2 * sizeof(float));
     }
 
     // bump variables for next call into readStream

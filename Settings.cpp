@@ -756,7 +756,7 @@ SoapySDR::ArgInfoList SoapySDRPlay::getFrequencyArgsInfo(const int direction, co
  ******************************************************************/
 
 /* input_sample_rate:  sample rate used by the SDR
- * output_sample_rate: sample rate the as seen by the client app
+ * output_sample_rate: sample rate as seen by the client app
  *                     (<= input_sample_rate because of decimation)
  */
 
@@ -1643,7 +1643,6 @@ void SoapySDRPlay::releaseDevice()
             sdrplay_api_UnlockDeviceApi();
             SoapySDR_logf(SOAPY_SDR_ERROR, "ReleaseDevice Error: %s", sdrplay_api_GetErrorString(err));
             throw std::runtime_error("ReleaseDevice() failed");
-            return;
         }
         deviceSelected = nullptr;
     }
@@ -1660,7 +1659,6 @@ void SoapySDRPlay::selectDevice()
         sdrplay_api_UnlockDeviceApi();
         SoapySDR_logf(SOAPY_SDR_ERROR, "SelectDevice Error: %s", sdrplay_api_GetErrorString(err));
         throw std::runtime_error("SelectDevice() failed");
-        return;
     }
 
     sdrplay_api_UnlockDeviceApi();
