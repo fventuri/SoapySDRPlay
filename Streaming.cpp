@@ -105,6 +105,9 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq, unsigned int numSamples,
 
     // get current fill buffer
     auto &buff = stream->buffs[stream->tail];
+
+    // we do not reallocate here, as we only resize within
+    // the buffers capacity
     buff.resize(buff.size() + spaceReqd);
 
     // copy into the buffer queue
@@ -194,7 +197,6 @@ SoapySDRPlay::SoapySDRPlayStream::SoapySDRPlayStream(size_t channel,
     // allocate buffers
     buffs.resize(numBuffers);
     for (auto &buff : buffs) buff.reserve(bufferLength);
-    for (auto &buff : buffs) buff.clear();
 }
 
 SoapySDRPlay::SoapySDRPlayStream::~SoapySDRPlayStream()
@@ -370,7 +372,8 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
 {
     if (!streamActive)
     {
-        return 0;
+        // TODO: wait timeoutUS and try again
+        return SOAPY_SDR_TIMEOUT;
     }
 
     SoapySDRPlayStream *sdrplay_stream = reinterpret_cast<SoapySDRPlayStream *>(stream);

@@ -296,6 +296,7 @@ public:
         std::vector<std::vector<short> > buffs;
         size_t      head;
         size_t      tail;
+        /// number of in-flight buffers
         size_t      count;
         short *currentBuff;
         bool overflowEvent;
