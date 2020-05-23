@@ -1,3 +1,5 @@
+## Please note that development and updates for this SoapySDR module are now here: https://github.com/SDRplay/SoapySDRPlay</br>This repository is no longer active.
+
 # Soapy SDR module for SDRPlay
 
 ## Documentation
